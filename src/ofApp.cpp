@@ -550,8 +550,9 @@ void ofApp::modeParts() {
     drawHUD("BODY.PARTS");
 }
 
-void ofApp::modeCloud() {
-    // the detected person reconstructed as a rotating 3D point cloud
+void ofApp::renderCloudFbo() {
+    // render the rotating 3D point cloud into fbo3d — MUST run OUTSIDE wallFbo (nesting an FBO
+    // pass inside the wall pass corrupts wallFbo's matrix and flips everything 180°).
     fbo3d.begin();
     ofClear(6, 8, 12, 255);
     ofEnableDepthTest();
@@ -573,6 +574,11 @@ void ofApp::modeCloud() {
     cam3.end();
     ofDisableDepthTest();
     fbo3d.end();
+}
+
+void ofApp::modeCloud() {
+    // rotating 3D point-cloud behind the visitor (fbo3d already rendered outside wallFbo)
+    ofClear(6, 8, 12, 255);
     ofSetColor(255); fbo3d.draw(0, 0);
     for (auto& tr : cv.tracks) drawDet(tr, ofColor(120, 210, 235));
     drawHUD("VOLUME.3D");
@@ -1337,6 +1343,7 @@ void ofApp::floorStream(ofRectangle a) {
 void ofApp::draw() {
     updateMotionTrail();
     stepSims();              // advance BOTH GPU sims (wall swarm + floor cascade) OUTSIDE their FBOs
+    if (mode == 6 && !cv.tracks.empty()) renderCloudFbo();   // 3D point cloud into fbo3d, outside wallFbo
     renderWall();
     renderFloor();
 
@@ -1367,8 +1374,8 @@ void ofApp::draw() {
         if (fn == 130) { wallFbo.readToPixels(px);  ofSaveImage(px, "scan_w_m1_cards.png"); }
         if (fn == 140) mode = 2;
         if (fn == 170) { wallFbo.readToPixels(px);  ofSaveImage(px, "scan_w_m2_mesh.png"); }
-        if (fn == 180) mode = 4;
-        if (fn == 210) { wallFbo.readToPixels(px);  ofSaveImage(px, "scan_w_m4_rain.png"); }
+        if (fn == 180) mode = 6;
+        if (fn == 210) { wallFbo.readToPixels(px);  ofSaveImage(px, "scan_w_m6_cloud.png"); }
         if (fn == 220) mode = 9;
         if (fn == 250) { wallFbo.readToPixels(px);  ofSaveImage(px, "scan_w_m9_swarm.png"); }
         if (fn == 300) { floorFbo.readToPixels(px); ofSaveImage(px, "scan_floor_term.png"); }        // normal terminal

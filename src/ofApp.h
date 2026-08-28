@@ -50,6 +50,7 @@ private:
     ofFbo     fbo3d;
     float     cyber = 0;              // cyber-burst intensity (drives glitch), decays
     void modeCloud();
+    void renderCloudFbo();   // render the 3D point cloud into fbo3d OUTSIDE wallFbo (nesting flips the wall)
     void modeOrbit();
     void drawWallTex(float x, float y, float w, float h);
 
