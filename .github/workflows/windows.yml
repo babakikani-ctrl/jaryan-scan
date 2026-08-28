@@ -50,19 +50,30 @@ jobs:
         run: |
           $of   = (Resolve-Path "OF").Path
           $proj = (Resolve-Path "OF\apps\myApps\dataJaryanScan").Path
-          $pg   = "$of\projectGenerator-vs\projectGenerator.exe"
-          Write-Host "projectGenerator: $pg"
-          & $pg "-o$of" "$proj"
+          Write-Host "--- OF top level ---"; Get-ChildItem $of | Select-Object Name | Format-Table -AutoSize
+          # locate projectGenerator.exe wherever it ships in this release
+          $pg = Get-ChildItem -Path $of -Recurse -Filter projectGenerator.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $pg) {
+            Write-Host "projectGenerator.exe not found; searching for commandLine variant..."
+            $pg = Get-ChildItem -Path $of -Recurse -Filter projectGeneratorCommandLine.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          }
+          if (-not $pg) { Write-Error "projectGenerator not found in the oF release"; exit 1 }
+          Write-Host "found projectGenerator: $($pg.FullName)"
+          & $pg.FullName "-o$of" "-pvs" "-aofxOpenCv, ofxGui" "$proj"
           Write-Host "--- project dir after generation ---"
           Get-ChildItem $proj | Select-Object Name | Format-Table -AutoSize
-          if (!(Test-Path "$proj\dataJaryanScan.sln")) { Write-Error "dataJaryanScan.sln was not generated"; exit 1 }
+          $sln = Get-ChildItem -Path $proj -Filter *.sln | Select-Object -First 1
+          if (-not $sln) { Write-Error "no .sln generated"; exit 1 }
+          Write-Host "sln: $($sln.FullName)"
 
       - name: Build (Release x64)
         run: |
-          $sln = (Resolve-Path "OF\apps\myApps\dataJaryanScan\dataJaryanScan.sln").Path
+          $proj = (Resolve-Path "OF\apps\myApps\dataJaryanScan").Path
+          $sln  = (Get-ChildItem -Path $proj -Filter *.sln | Select-Object -First 1).FullName
+          Write-Host "building $sln"
           msbuild $sln /p:Configuration=Release /p:Platform=x64 /m /verbosity:minimal /nologo
           Write-Host "--- bin ---"
-          Get-ChildItem "OF\apps\myApps\dataJaryanScan\bin" | Select-Object Name,Length | Format-Table -AutoSize
+          Get-ChildItem "$proj\bin" | Select-Object Name,Length | Format-Table -AutoSize
 
       - name: Upload Windows build
         uses: actions/upload-artifact@v4
