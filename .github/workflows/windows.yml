@@ -7,6 +7,8 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      PKG_CONFIG_PATH: /mingw64/lib/pkgconfig:/mingw64/share/pkgconfig
     defaults:
       run:
         shell: msys2 {0}
@@ -55,15 +57,33 @@ jobs:
             pacman -S --needed --noconfirm "$P-$pkg" || echo "WARN: $pkg failed"
             echo "::endgroup::"
           done
-          # point ofxOpenCv at the installed OpenCV (opencv4 if present — it includes the dnn module)
+          # ---- diagnostics ----
+          echo "which pkg-config: $(command -v pkg-config)"
+          echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
+          echo "pc files (glm/opencv):"; ls /mingw64/lib/pkgconfig/ 2>/dev/null | grep -iE 'glm|opencv' || echo "  (none listed)"
+          # ---- glm.pc fallback: the msys2 glm package is header-only and ships NO glm.pc ----
+          if ! pkg-config glm --exists 2>/dev/null; then
+            echo "glm.pc missing -> creating one"
+            cat > /mingw64/lib/pkgconfig/glm.pc <<'EOF'
+prefix=/mingw64
+includedir=${prefix}/include
+Name: GLM
+Description: OpenGL Mathematics (header-only)
+Version: 0.9.9.8
+Cflags: -I${includedir}
+EOF
+          fi
+          pkg-config glm --exists && echo "glm OK" || echo "glm STILL MISSING"
+          # ---- point ofxOpenCv at OpenCV4 (includes the dnn module) ----
           ACFG="$GITHUB_WORKSPACE/OF/addons/ofxOpenCv/addon_config.mk"
           if pkg-config opencv4 --exists; then
             echo "OpenCV4 found -> ofxOpenCv will use opencv4 (dnn available)"
             sed -i -E 's/ADDON_PKG_CONFIG_LIBRARIES =(.*)opencv\s/ADDON_PKG_CONFIG_LIBRARIES =\1opencv4 /g' "$ACFG" || true
             sed -i -E 's/ADDON_PKG_CONFIG_LIBRARIES =(.*)opencv$/ADDON_PKG_CONFIG_LIBRARIES =\1opencv4/g' "$ACFG" || true
+          else
+            echo "opencv4 pkg-config NOT found"
           fi
-          echo "=== glm check ==="; pkg-config glm --exists && echo "glm OK" || echo "glm MISSING"
-          echo "=== opencv4 libs ==="; pkg-config opencv4 --libs 2>/dev/null | tr ' ' '\n' | grep -i dnn || echo "(no dnn in pkg-config libs list)"
+          echo "=== opencv4 dnn lib? ==="; pkg-config opencv4 --libs 2>/dev/null | tr ' ' '\n' | grep -i dnn || echo "(no dnn in libs list)"
 
       - name: Stage project into oF
         run: |
