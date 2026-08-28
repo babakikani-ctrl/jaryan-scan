@@ -64,14 +64,7 @@ jobs:
           # ---- glm.pc fallback: the msys2 glm package is header-only and ships NO glm.pc ----
           if ! pkg-config glm --exists 2>/dev/null; then
             echo "glm.pc missing -> creating one"
-            cat > /mingw64/lib/pkgconfig/glm.pc <<'EOF'
-prefix=/mingw64
-includedir=${prefix}/include
-Name: GLM
-Description: OpenGL Mathematics (header-only)
-Version: 0.9.9.8
-Cflags: -I${includedir}
-EOF
+            printf 'prefix=/mingw64\nincludedir=${prefix}/include\nName: GLM\nDescription: header-only\nVersion: 0.9.9.8\nCflags: -I${includedir}\n' > /mingw64/lib/pkgconfig/glm.pc
           fi
           pkg-config glm --exists && echo "glm OK" || echo "glm STILL MISSING"
           # ---- point ofxOpenCv at OpenCV4 (includes the dnn module) ----
