@@ -40,17 +40,30 @@ jobs:
           mv of_v0.12.0_msys2_mingw64_release OF
           echo "=== OF top ==="; ls OF
 
-      - name: Install oF dependencies
+      - name: Install oF dependencies (explicit — fixes the broken FreeImage name)
         run: |
           set -e
-          cd "$GITHUB_WORKSPACE/OF"
-          if [ -f scripts/msys2/install_dependencies.sh ]; then
-            echo "running oF install_dependencies.sh"
-            scripts/msys2/install_dependencies.sh --noconfirm || \
-            yes | scripts/msys2/install_dependencies.sh || true
-          else
-            echo "no install_dependencies.sh found; skipping"
+          P=mingw-w64-x86_64
+          # msys packages
+          pacman -S --needed --noconfirm rsync zip wget || true
+          # mingw packages (correct lowercase names; oF's own script uses "FreeImage" which no longer resolves)
+          PKGS="assimp boost cairo curl freeglut freeimage glew glfw glm harfbuzz \
+                libsndfile libusb libxml2 mpg123 nlohmann-json ntldd-git openal opencv \
+                pkgconf poco pugixml rtaudio uriparser utf8cpp zlib"
+          for pkg in $PKGS; do
+            echo "::group::install $pkg"
+            pacman -S --needed --noconfirm "$P-$pkg" || echo "WARN: $pkg failed"
+            echo "::endgroup::"
+          done
+          # point ofxOpenCv at the installed OpenCV (opencv4 if present — it includes the dnn module)
+          ACFG="$GITHUB_WORKSPACE/OF/addons/ofxOpenCv/addon_config.mk"
+          if pkg-config opencv4 --exists; then
+            echo "OpenCV4 found -> ofxOpenCv will use opencv4 (dnn available)"
+            sed -i -E 's/ADDON_PKG_CONFIG_LIBRARIES =(.*)opencv\s/ADDON_PKG_CONFIG_LIBRARIES =\1opencv4 /g' "$ACFG" || true
+            sed -i -E 's/ADDON_PKG_CONFIG_LIBRARIES =(.*)opencv$/ADDON_PKG_CONFIG_LIBRARIES =\1opencv4/g' "$ACFG" || true
           fi
+          echo "=== glm check ==="; pkg-config glm --exists && echo "glm OK" || echo "glm MISSING"
+          echo "=== opencv4 libs ==="; pkg-config opencv4 --libs 2>/dev/null | tr ' ' '\n' | grep -i dnn || echo "(no dnn in pkg-config libs list)"
 
       - name: Stage project into oF
         run: |
@@ -66,8 +79,6 @@ jobs:
           echo "template dir: $TPLDIR"
           cp "$TPLDIR/Makefile" "$APP/Makefile"
           cp "$TPLDIR/config.make" "$APP/config.make"
-          # first build: no opencv_dnn (guaranteed portable; blob-tracking fallback)
-          echo 'PROJECT_CFLAGS = -DJARYAN_NO_DNN' >> "$APP/config.make"
           echo "=== staged app ==="; ls -la "$APP"
 
       - name: Build (Release)
