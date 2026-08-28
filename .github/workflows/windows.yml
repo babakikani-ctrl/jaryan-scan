@@ -50,21 +50,26 @@ jobs:
         run: |
           $of   = (Resolve-Path "OF").Path
           $proj = (Resolve-Path "OF\apps\myApps\dataJaryanScan").Path
-          Write-Host "--- OF top level ---"; Get-ChildItem $of | Select-Object Name | Format-Table -AutoSize
-          # locate projectGenerator.exe wherever it ships in this release
-          $pg = Get-ChildItem -Path $of -Recurse -Filter projectGenerator.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $pg) {
-            Write-Host "projectGenerator.exe not found; searching for commandLine variant..."
-            $pg = Get-ChildItem -Path $of -Recurse -Filter projectGeneratorCommandLine.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          Write-Host "--- all projectGenerator*.exe in the release ---"
+          Get-ChildItem -Path $of -Recurse -Filter projectGenerator*.exe -EA SilentlyContinue | ForEach-Object { Write-Host $_.FullName }
+          # prefer a nested NATIVE command-line binary (resources/app/app) over the top-level Electron shell
+          $pg = Get-ChildItem -Path $of -Recurse -Filter projectGenerator.exe -EA SilentlyContinue |
+                Sort-Object { $_.FullName.Length } -Descending | Select-Object -First 1
+          if (-not $pg) { Write-Error "projectGenerator not found"; exit 1 }
+          Write-Host "using: $($pg.FullName)"
+          # launch, then POLL for the .sln (the Electron shell returns before generation finishes)
+          $p = Start-Process -FilePath $pg.FullName -ArgumentList @("-o$of","-pvs","$proj") -PassThru -NoNewWindow
+          $sln = $null
+          for ($i=0; $i -lt 50; $i++) {
+            Start-Sleep -Seconds 3
+            $sln = Get-ChildItem -Path $proj -Filter *.sln -EA SilentlyContinue | Select-Object -First 1
+            if ($sln) { break }
           }
-          if (-not $pg) { Write-Error "projectGenerator not found in the oF release"; exit 1 }
-          Write-Host "found projectGenerator: $($pg.FullName)"
-          & $pg.FullName "-o$of" "-pvs" "-aofxOpenCv, ofxGui" "$proj"
+          if ($p -and -not $p.HasExited) { $p | Stop-Process -Force -EA SilentlyContinue }
           Write-Host "--- project dir after generation ---"
           Get-ChildItem $proj | Select-Object Name | Format-Table -AutoSize
-          $sln = Get-ChildItem -Path $proj -Filter *.sln | Select-Object -First 1
-          if (-not $sln) { Write-Error "no .sln generated"; exit 1 }
-          Write-Host "sln: $($sln.FullName)"
+          if (-not $sln) { Write-Error "no .sln generated after wait"; exit 1 }
+          Write-Host "generated: $($sln.FullName)"
 
       - name: Build (Release x64)
         run: |
