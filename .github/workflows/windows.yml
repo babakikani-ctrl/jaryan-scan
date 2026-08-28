@@ -40,10 +40,8 @@ jobs:
           Copy-Item proj\src        $app -Recurse -Force
           Copy-Item proj\bin        $app -Recurse -Force
           Copy-Item proj\addons.make $app -Force
-          # First build disables opencv_dnn so it compiles even if ofxOpenCv-vs lacks the dnn lib.
-          # (blob-tracking fallback still works). Directory.Build.props injects the define app-wide.
-          $props = '<Project><ItemDefinitionGroup><ClCompile><PreprocessorDefinitions>JARYAN_NO_DNN;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile></ItemDefinitionGroup></Project>'
-          Set-Content -Path "$app\Directory.Build.props" -Value $props -Encoding ascii
+          # DNN person-detection ENABLED (ofxOpenCv-vs ships opencv_dnn, same as macOS) — it is the
+          # most important feature; the app must behave identically to the mac build.
           Get-ChildItem $app | Select-Object Name | Format-Table -AutoSize
 
       - name: Generate Visual Studio project
