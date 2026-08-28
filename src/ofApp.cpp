@@ -142,13 +142,7 @@ void ofApp::update() {
 void ofApp::cut() {
     int nm; do { nm = (int)ofRandom(nEffects); } while (nm == mode && nEffects > 1);
     mode = nm; modeT = 0;
-    if (flickerLeft > 0) { flickerLeft--; nextCut = ofRandom(0.07f, 0.16f); }   // inside a burst
-    else {
-        float r = ofRandom(1);
-        if (r < 0.16f) { flickerLeft = 2 + (int)ofRandom(3); nextCut = ofRandom(0.07f, 0.16f); }  // start a rapid burst
-        else if (r < 0.46f) nextCut = ofRandom(4.5f, 9.0f);    // slow hold
-        else nextCut = ofRandom(1.6f, 3.6f);                   // medium
-    }
+    nextCut = ofRandom(110.0f, 135.0f);    // ~2 minutes per world — calm, immersive; visitors settle in
     triggerCut();
 }
 
@@ -337,9 +331,15 @@ void ofApp::renderWall() {
 }
 
 void ofApp::modeWallSwarm() {
-    // the visitor rebuilt from ~30k swirling code glyphs (acid), with detection chrome
+    // the visitor rebuilt from ~30k swirling code glyphs (acid), over a soft real base so
+    // they clearly recognise THEMSELVES; hands swirl the code (interactive)
     ofClear(4, 5, 9, 255);
+    ofSetColor(150);
+    for (auto& tr : cv.tracks) drawPersonReal(tr);       // faint real self underneath
+    ofSetColor(255);
+    ofEnableBlendMode(OF_BLENDMODE_ADD);
     drawWallSwarm();
+    ofEnableBlendMode(OF_BLENDMODE_ALPHA);
     for (auto& tr : cv.tracks) drawDet(tr, ofColor(200, 206, 212));
     drawHUD("SWARM.CODE");
 }
@@ -654,6 +654,8 @@ void ofApp::buildGlyphAtlas() {
 
 void ofApp::modeRain() {
     ofClear(0, 0, 0, 255);
+    for (auto& tr : cv.tracks) drawPersonReal(tr);        // SEE YOURSELF first, code rains over you
+    ofEnableBlendMode(OF_BLENDMODE_ADD);                  // additive -> the person shows through the rain
     coderain.begin();
     coderain.setUniformTexture("uCam", cv.cameraTexture(), 0);
     coderain.setUniformTexture("uSil", cv.silhouetteTexture(), 1);
@@ -664,6 +666,7 @@ void ofApp::modeRain() {
     ofSetColor(255);
     ofPushMatrix(); ofScale(rw, rh); unitQuad.draw(); ofPopMatrix();
     coderain.end();
+    ofEnableBlendMode(OF_BLENDMODE_ALPHA);
     for (auto& tr : cv.tracks)
         drawBox(trackRect(tr), "ID:" + ofToString(tr.id % 1000, 3, '0'), 0.80f + 0.18f * ofNoise(tr.id * 1.9f, t * 0.3f), ofColor(200, 210, 215));
     drawHUD("CODE.RAIN");
@@ -1325,8 +1328,8 @@ void ofApp::draw() {
         if (fn == 130) { wallFbo.readToPixels(px);  ofSaveImage(px, "scan_w_m1_cards.png"); }
         if (fn == 140) mode = 2;
         if (fn == 170) { wallFbo.readToPixels(px);  ofSaveImage(px, "scan_w_m2_mesh.png"); }
-        if (fn == 180) mode = 6;
-        if (fn == 210) { wallFbo.readToPixels(px);  ofSaveImage(px, "scan_w_m6_cloud.png"); }
+        if (fn == 180) mode = 4;
+        if (fn == 210) { wallFbo.readToPixels(px);  ofSaveImage(px, "scan_w_m4_rain.png"); }
         if (fn == 220) mode = 9;
         if (fn == 250) { wallFbo.readToPixels(px);  ofSaveImage(px, "scan_w_m9_swarm.png"); }
         if (fn == 300) { floorFbo.readToPixels(px); ofSaveImage(px, "scan_floor_term.png"); }        // normal terminal
