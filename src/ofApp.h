@@ -88,6 +88,7 @@ private:
     ofShader personFg;                            // clear silhouette-masked real video shown IN FRONT of the effect
     void drawPersonFg();                          // draw all tracked people, clear + sharp, over the background effect
     void drawMotionSparks();                      // bright reactive sparks wherever the visitor moves (interactivity)
+    void drawMotionCode();                         // clear, colourful CODE glyphs that bloom in the motion energy
     ofRectangle trackRect(const CvTrack& tr);
     glm::vec4   camUv(const CvTrack& tr);
     void drawMachine(ofRectangle dst, glm::vec2 uvMin, glm::vec2 uvMax, glm::vec2 cells, ofColor tint, float gray, float scan);

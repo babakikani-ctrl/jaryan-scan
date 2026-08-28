@@ -270,6 +270,33 @@ void ofApp::drawMotionSparks() {
     ofPopStyle();
 }
 
+void ofApp::drawMotionCode() {
+    // where the visitor moves, colourful CODE glyphs bloom inside the white energy — CLEAR
+    // and readable (a dark backing lifts them off the bright glow).
+    ofPixels& mp = cv.motionPixels();
+    int mw = (int)mp.getWidth(), mh = (int)mp.getHeight();
+    if (mw <= 0) return;
+    const unsigned char* d = mp.getData();
+    static const char* CH = "0123456789ABCDEF#%*+=<>/\\{}$&@";
+    const int nc = 29;
+    ofColor pal[6] = { ofColor(0,220,255), ofColor(255,60,200), ofColor(255,210,0),
+                       ofColor(70,255,140), ofColor(255,120,20), ofColor(235,245,255) };
+    int GX = 42, GY = 26, frame = (int)(t * 7.0f);
+    ofPushStyle();
+    for (int gy = 0; gy < GY; gy++) for (int gx = 0; gx < GX; gx++) {
+        float u = (gx + 0.5f) / GX, v = (gy + 0.5f) / GY;
+        float m = d[((int)(v * mh)) * mw + (int)(u * mw)] / 255.0f;
+        if (m < 0.20f) continue;
+        float e = ofClamp((m - 0.20f) / 0.5f, 0, 1);
+        float sx = u * rw, sy = v * rh;
+        std::string s(1, CH[(gx * 7 + gy * 13 + frame) % nc]);
+        ofColor col = pal[(gx + gy * 2 + frame / 3) % 6];
+        ofSetColor(0, 0, 0, (int)(190 * e));      fBig.drawString(s, sx + 1.5f, sy + 1.5f);   // readable backing
+        ofSetColor(col, (int)(200 + 55 * e));     fBig.drawString(s, sx, sy);                 // clear colour code
+    }
+    ofPopStyle();
+}
+
 void ofApp::drawDet(const CvTrack& tr, ofColor c) {
     ofRectangle r = trackRect(tr);
     float age = tr.age;
@@ -341,11 +368,12 @@ void ofApp::renderWall() {
     else if (mode == 8) modeScan();
     else                modeWallSwarm();           // the acid code-glyph swarm — one of the changing worlds
     drawPersonFg();                                 // CLEAR tracked visitor IN FRONT of the effect
-    if (!cv.tracks.empty()) {                       // interactive energy trail + sparks follow the hands
+    if (!cv.tracks.empty()) {                       // interactive energy: white glow + sparks + readable code
         ofEnableBlendMode(OF_BLENDMODE_ADD); ofSetColor(255);
         motionFbo[trailCur].draw(0, 0);
         ofEnableBlendMode(OF_BLENDMODE_ALPHA);
         drawMotionSparks();
+        drawMotionCode();                           // colourful code glyphs bloom in the white energy
     }
     wallFbo.end();
 }
