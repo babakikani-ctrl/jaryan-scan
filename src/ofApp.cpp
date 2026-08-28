@@ -205,7 +205,7 @@ void ofApp::drawPersonFg() {
     if (cv.tracks.empty()) return;
     personFg.begin();
     personFg.setUniformTexture("uCam", cv.cameraTexture(), 0);
-    personFg.setUniformTexture("uSil", cv.silhouetteTexture(), 1);
+    personFg.setUniformTexture("uSil", cv.subjectTexture(), 1);       // only DETECTED people (no background clutter)
     personFg.setUniform2f("uTexel", 1.0f / cv.camW, 1.0f / cv.camH);
     personFg.setUniform1f("uTime", t);
     ofSetColor(255);
@@ -223,11 +223,14 @@ void ofApp::updateMotionTrail() {
     int mw = (int)mp.getWidth(), mh = (int)mp.getHeight();
     if (mw > 0 && !cv.tracks.empty()) {
         const unsigned char* d = mp.getData();
+        const unsigned char* sub = cv.subjectPixels().getData();
         ofEnableBlendMode(OF_BLENDMODE_ADD);
         int GX = 120, GY = 68;
         for (int gy = 0; gy < GY; gy++) for (int gx = 0; gx < GX; gx++) {
             float u = (gx + 0.5f) / GX, v = (gy + 0.5f) / GY;
-            float m = d[((int)(v * mh)) * mw + (int)(u * mw)] / 255.0f;
+            int idx = ((int)(v * mh)) * mw + (int)(u * mw);
+            if (sub[idx] < 60) continue;                        // only on detected people (ignore background)
+            float m = d[idx] / 255.0f;
             if (m < 0.10f) continue;
             float e = ofClamp((m - 0.10f) / 0.45f, 0, 1);
             float sx = u * WALL_W, sy = v * WALL_H;              // source already mirrored -> follows the hands
@@ -247,12 +250,15 @@ void ofApp::drawMotionSparks() {
     int mw = (int)mp.getWidth(), mh = (int)mp.getHeight();
     if (mw <= 0) return;
     const unsigned char* d = mp.getData();
+    const unsigned char* sub = cv.subjectPixels().getData();
     int GX = 72, GY = 40;
     ofPushStyle();
     ofEnableBlendMode(OF_BLENDMODE_ADD);
     for (int gy = 0; gy < GY; gy++) for (int gx = 0; gx < GX; gx++) {
         float u = (gx + 0.5f) / GX, v = (gy + 0.5f) / GY;
-        float m = d[((int)(v * mh)) * mw + (int)(u * mw)] / 255.0f;
+        int idx = ((int)(v * mh)) * mw + (int)(u * mw);
+        if (sub[idx] < 60) continue;                            // only on detected people
+        float m = d[idx] / 255.0f;
         if (m < 0.12f) continue;
         float e = ofClamp((m - 0.12f) / 0.5f, 0, 1);
         float sx = u * rw, sy = v * rh;                             // source already mirrored -> follows the visitor
@@ -277,6 +283,7 @@ void ofApp::drawMotionCode() {
     int mw = (int)mp.getWidth(), mh = (int)mp.getHeight();
     if (mw <= 0) return;
     const unsigned char* d = mp.getData();
+    const unsigned char* sub = cv.subjectPixels().getData();
     static const char* CH = "0123456789ABCDEF#%*+=<>/\\{}$&@";
     const int nc = 29;
     ofColor pal[6] = { ofColor(0,220,255), ofColor(255,60,200), ofColor(255,210,0),
@@ -285,7 +292,9 @@ void ofApp::drawMotionCode() {
     ofPushStyle();
     for (int gy = 0; gy < GY; gy++) for (int gx = 0; gx < GX; gx++) {
         float u = (gx + 0.5f) / GX, v = (gy + 0.5f) / GY;
-        float m = d[((int)(v * mh)) * mw + (int)(u * mw)] / 255.0f;
+        int idx = ((int)(v * mh)) * mw + (int)(u * mw);
+        if (sub[idx] < 60) continue;                            // only on detected people
+        float m = d[idx] / 255.0f;
         if (m < 0.20f) continue;
         float e = ofClamp((m - 0.20f) / 0.5f, 0, 1);
         float sx = u * rw, sy = v * rh;

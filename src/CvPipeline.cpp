@@ -11,6 +11,9 @@ void CvPipeline::setup(bool fakeCam, int w, int h) {
     silImg.allocate(w, h, OF_IMAGE_GRAYSCALE);
     silImg.getPixels().set(0);
     silImg.update();
+    subjImg.allocate(w, h, OF_IMAGE_GRAYSCALE);
+    subjImg.getPixels().set(0);
+    subjImg.update();
     prevGray.allocate(w, h); motionCv.allocate(w, h);
     motionImg.allocate(w, h, OF_IMAGE_GRAYSCALE);
     motionImg.getPixels().set(0); motionImg.update();
@@ -184,6 +187,17 @@ void CvPipeline::update(float dt) {
 
     silImg.setFromPixels(diff.getPixels());   // silhouette for the LED field
     silImg.update();
+
+    {   // SUBJECT mask = foreground restricted to DETECTED people -> ignores background clutter
+        ofPixels sp = diff.getPixels();
+        if (usingDNN && personMask.size() == sp.size()) {
+            unsigned char* s = sp.getData();
+            size_t n = sp.size();
+            for (size_t i = 0; i < n; i++) if (!personMask[i]) s[i] = 0;
+        }
+        subjImg.setFromPixels(sp);            // == silhouette when no DNN (fake-cam / fallback)
+        subjImg.update();
+    }
 
     int minA = (int)((camW * camH) * 0.004f);
     int maxA = (int)((camW * camH) * 0.70f);

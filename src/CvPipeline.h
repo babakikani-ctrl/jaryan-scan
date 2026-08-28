@@ -27,8 +27,10 @@ public:
 
     ofTexture& cameraTexture() { return camImg.getTexture(); }
     ofTexture& silhouetteTexture() { return silImg.getTexture(); }
+    ofTexture& subjectTexture()    { return subjImg.getTexture(); }     // silhouette ∩ DNN person boxes (precise)
     ofTexture& motionTexture()     { return motionImg.getTexture(); }   // frame-to-frame motion (hands)
     ofPixels&  silhouettePixels()  { return silImg.getPixels(); }
+    ofPixels&  subjectPixels()     { return subjImg.getPixels(); }
     ofPixels&  motionPixels()      { return motionImg.getPixels(); }
     ofPixels&  cameraPixels()      { return camImg.getPixels(); }
     std::vector<CvTrack>     tracks;
@@ -58,7 +60,7 @@ private:
     std::vector<unsigned char> personMask;  // camW*camH, 1 inside a detected person
 
     ofVideoGrabber grabber;
-    ofImage fakeImg, camImg, silImg, motionImg;
+    ofImage fakeImg, camImg, silImg, subjImg, motionImg;
     ofxCvColorImage color;
     ofxCvGrayscaleImage gray, bg, diff, prevGray, motionCv;
     bool havePrev = false;
