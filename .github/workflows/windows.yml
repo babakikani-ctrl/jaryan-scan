@@ -1,0 +1,102 @@
+name: build-windows
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+        with:
+          path: proj
+
+      - name: Setup MSYS2 (MINGW64)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            make
+            unzip
+            tar
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-pkgconf
+
+      - name: Download openFrameworks (msys2 release)
+        run: |
+          set -e
+          cd "$GITHUB_WORKSPACE"
+          echo "workspace: $(pwd)"
+          curl -L --retry 3 -o of.zip \
+            https://github.com/openframeworks/openFrameworks/releases/download/0.12.0/of_v0.12.0_msys2_mingw64_release.zip
+          echo "unzipping..."
+          unzip -q of.zip
+          mv of_v0.12.0_msys2_mingw64_release OF
+          echo "=== OF top ==="; ls OF
+
+      - name: Install oF dependencies
+        run: |
+          set -e
+          cd "$GITHUB_WORKSPACE/OF"
+          if [ -f scripts/msys2/install_dependencies.sh ]; then
+            echo "running oF install_dependencies.sh"
+            scripts/msys2/install_dependencies.sh --noconfirm || \
+            yes | scripts/msys2/install_dependencies.sh || true
+          else
+            echo "no install_dependencies.sh found; skipping"
+          fi
+
+      - name: Stage project into oF
+        run: |
+          set -e
+          cd "$GITHUB_WORKSPACE"
+          APP=OF/apps/myApps/dataJaryanScan
+          rm -rf "$APP"; mkdir -p "$APP"
+          cp -r proj/src "$APP/"
+          cp -r proj/bin "$APP/"
+          cp proj/addons.make "$APP/"
+          # grab a working Makefile + config.make from any example template
+          TPLDIR=$(dirname "$(find OF/examples -name config.make 2>/dev/null | head -1)")
+          echo "template dir: $TPLDIR"
+          cp "$TPLDIR/Makefile" "$APP/Makefile"
+          cp "$TPLDIR/config.make" "$APP/config.make"
+          # first build: no opencv_dnn (guaranteed portable; blob-tracking fallback)
+          echo 'PROJECT_CFLAGS = -DJARYAN_NO_DNN' >> "$APP/config.make"
+          echo "=== staged app ==="; ls -la "$APP"
+
+      - name: Build (Release)
+        run: |
+          set -e
+          cd "$GITHUB_WORKSPACE/OF/apps/myApps/dataJaryanScan"
+          make -j2 Release
+          echo "=== bin after build ==="; ls -la bin
+
+      - name: Bundle runtime DLLs (make it self-contained)
+        run: |
+          set -e
+          cd "$GITHUB_WORKSPACE/OF/apps/myApps/dataJaryanScan/bin"
+          EXE=$(ls *.exe 2>/dev/null | head -1)
+          echo "exe: $EXE"
+          if [ -n "$EXE" ]; then
+            # copy every non-system DLL the exe transitively depends on
+            ldd "$EXE" | awk '{print $3}' | while read -r dll; do
+              case "$dll" in
+                /c/Windows/*|/c/WINDOWS/*|"") continue ;;
+              esac
+              if [ -f "$dll" ]; then cp -u "$dll" . && echo "  + $(basename "$dll")"; fi
+            done
+          fi
+          echo "=== final bin ==="; ls -la
+
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: dataJaryanScan-windows
+          path: OF/apps/myApps/dataJaryanScan/bin
+          if-no-files-found: error

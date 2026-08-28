@@ -1,0 +1,24 @@
+# build artifacts
+obj/
+*.o
+*.d
+
+# macOS app bundle + binary (built per-platform, not committed)
+bin/dataJaryanScan.app/
+bin/dataJaryanScan
+bin/*.exe
+bin/*.dll
+
+# autoshot / preview images
+bin/data/*.png
+
+# runtime config + OS cruft
+bin/data/layout.xml
+.DS_Store
+
+# oF build system files (regenerated per platform in CI)
+Makefile
+config.make
+*.qbs
+*.sln
+*.vcxproj*
