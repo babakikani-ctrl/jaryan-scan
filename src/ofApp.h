@@ -85,6 +85,8 @@ private:
     void drawBox(const ofRectangle& r, const std::string& id, float conf, ofColor c);
     void drawDet(const CvTrack& tr, ofColor c);   // detection box with ACQUIRING -> LOCKED states
     void drawPersonReal(const CvTrack& tr);       // the person's actual recognizable video crop (base layer)
+    ofShader personFg;                            // clear silhouette-masked real video shown IN FRONT of the effect
+    void drawPersonFg();                          // draw all tracked people, clear + sharp, over the background effect
     void drawMotionSparks();                      // bright reactive sparks wherever the visitor moves (interactivity)
     ofRectangle trackRect(const CvTrack& tr);
     glm::vec4   camUv(const CvTrack& tr);

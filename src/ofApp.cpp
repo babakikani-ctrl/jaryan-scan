@@ -30,6 +30,7 @@ void ofApp::setup() {
     aPPos.load("shaders/a_passthru.vert", "shaders/a_psim_pos.frag");
     aPRender.load("shaders/a_prender.vert", "shaders/a_prender.frag");
     aCodeRain.load("shaders/post.vert", "shaders/a_coderain.frag");
+    personFg.load("shaders/post.vert", "shaders/fg_person.frag");            // clear person in FRONT of the effect
     cascInit.load("shaders/a_passthru.vert", "shaders/casc_init.frag");     // floor code-cascade
     cascSim.load("shaders/a_passthru.vert", "shaders/casc_sim.frag");
     cascRender.load("shaders/casc_render.vert", "shaders/casc_render.frag");
@@ -198,27 +199,42 @@ void ofApp::drawPersonReal(const CvTrack& tr) {
     drawMachine(r, glm::vec2(uv.x, uv.y), glm::vec2(uv.z, uv.w), cells, ofColor(255), 1.0f, 0.12f);
 }
 
+void ofApp::drawPersonFg() {
+    // the tracked visitor, CLEAR & sharp (real mirrored video, silhouette-masked, cyan scan-rim),
+    // drawn IN FRONT of whatever effect is running behind — so people always see themselves.
+    if (cv.tracks.empty()) return;
+    personFg.begin();
+    personFg.setUniformTexture("uCam", cv.cameraTexture(), 0);
+    personFg.setUniformTexture("uSil", cv.silhouetteTexture(), 1);
+    personFg.setUniform2f("uTexel", 1.0f / cv.camW, 1.0f / cv.camH);
+    personFg.setUniform1f("uTime", t);
+    ofSetColor(255);
+    ofPushMatrix(); ofScale(rw, rh); unitQuad.draw(); ofPopMatrix();
+    personFg.end();
+}
+
 void ofApp::updateMotionTrail() {
     int nx = 1 - trailCur;
     motionFbo[nx].begin();
     ofClear(0, 0, 0, 255);
-    ofSetColor(255, 255, 255, 234);                        // decay -> lingering light-trails
+    ofSetColor(255, 255, 255, 243);                        // slower decay -> long flowing energy trails
     motionFbo[trailCur].draw(0, 0);
     ofPixels& mp = cv.motionPixels();
     int mw = (int)mp.getWidth(), mh = (int)mp.getHeight();
     if (mw > 0 && !cv.tracks.empty()) {
         const unsigned char* d = mp.getData();
         ofEnableBlendMode(OF_BLENDMODE_ADD);
-        int GX = 96, GY = 54;
+        int GX = 120, GY = 68;
         for (int gy = 0; gy < GY; gy++) for (int gx = 0; gx < GX; gx++) {
             float u = (gx + 0.5f) / GX, v = (gy + 0.5f) / GY;
             float m = d[((int)(v * mh)) * mw + (int)(u * mw)] / 255.0f;
-            if (m < 0.13f) continue;
-            float e = ofClamp((m - 0.13f) / 0.5f, 0, 1);
+            if (m < 0.10f) continue;
+            float e = ofClamp((m - 0.10f) / 0.45f, 0, 1);
             float sx = u * WALL_W, sy = v * WALL_H;              // source already mirrored -> follows the hands
-            ofColor col = ofColor(50, 200, 240).getLerped(ofColor(255, 90, 210), e);   // cyan -> magenta by intensity
-            ofSetColor(col, (int)(200 * e));
-            ofDrawCircle(sx, sy, 3 + e * 11);
+            ofColor col = ofColor(40, 190, 255).getLerped(ofColor(255, 70, 210), e);   // cyan -> magenta by speed
+            ofSetColor(col, (int)(110 * e)); ofDrawCircle(sx, sy, 10 + e * 34);         // big soft aura
+            ofSetColor(col, (int)(200 * e)); ofDrawCircle(sx, sy, 4 + e * 14);          // bright body
+            ofSetColor(255, 255, 255, (int)(230 * e)); ofDrawCircle(sx, sy, 1.5f + e * 4.5f);   // white-hot core
         }
         ofEnableBlendMode(OF_BLENDMODE_ALPHA);
     }
@@ -231,23 +247,26 @@ void ofApp::drawMotionSparks() {
     int mw = (int)mp.getWidth(), mh = (int)mp.getHeight();
     if (mw <= 0) return;
     const unsigned char* d = mp.getData();
-    int GX = 60, GY = 34;
-    ofPushStyle(); ofSetLineWidth(1.2f);
+    int GX = 72, GY = 40;
+    ofPushStyle();
+    ofEnableBlendMode(OF_BLENDMODE_ADD);
     for (int gy = 0; gy < GY; gy++) for (int gx = 0; gx < GX; gx++) {
         float u = (gx + 0.5f) / GX, v = (gy + 0.5f) / GY;
         float m = d[((int)(v * mh)) * mw + (int)(u * mw)] / 255.0f;
-        if (m < 0.16f) continue;
-        float e = ofClamp((m - 0.16f) / 0.5f, 0, 1);
+        if (m < 0.12f) continue;
+        float e = ofClamp((m - 0.12f) / 0.5f, 0, 1);
         float sx = u * rw, sy = v * rh;                             // source already mirrored -> follows the visitor
-        ofSetColor(150, 225, 250, (int)(210 * e));
-        int ns = 3 + (int)(e * 4);
+        ofSetColor(150, 230, 255, (int)(235 * e)); ofSetLineWidth(1.0f + e * 1.8f);   // radiating energy tendrils
+        int ns = 5 + (int)(e * 9);
         for (int i = 0; i < ns; i++) {
-            float a = (gx * 7 + gy * 3 + i * 2.399f) + t * 3.0f;
-            float len = 6.0f + e * 24.0f;
+            float a = (gx * 7 + gy * 3 + i * 2.399f) + t * 3.6f;
+            float len = 10.0f + e * 46.0f;
             ofDrawLine(sx, sy, sx + cosf(a) * len, sy + sinf(a) * len);
         }
-        ofFill(); ofDrawCircle(sx, sy, 1.4f + e * 2.2f);
+        ofNoFill(); ofSetLineWidth(1.4f); ofSetColor(120, 220, 255, (int)(200 * e)); ofDrawCircle(sx, sy, 5 + e * 14);
+        ofFill(); ofSetColor(255, 255, 255, (int)(240 * e)); ofDrawCircle(sx, sy, 2.0f + e * 4.0f);
     }
+    ofEnableBlendMode(OF_BLENDMODE_ALPHA);
     ofPopStyle();
 }
 
@@ -321,7 +340,8 @@ void ofApp::renderWall() {
     else if (mode == 7) modeOrbit();
     else if (mode == 8) modeScan();
     else                modeWallSwarm();           // the acid code-glyph swarm — one of the changing worlds
-    if (!cv.tracks.empty()) {                       // interactive: light-trail + sparks follow the visitor
+    drawPersonFg();                                 // CLEAR tracked visitor IN FRONT of the effect
+    if (!cv.tracks.empty()) {                       // interactive energy trail + sparks follow the hands
         ofEnableBlendMode(OF_BLENDMODE_ADD); ofSetColor(255);
         motionFbo[trailCur].draw(0, 0);
         ofEnableBlendMode(OF_BLENDMODE_ALPHA);
@@ -331,15 +351,9 @@ void ofApp::renderWall() {
 }
 
 void ofApp::modeWallSwarm() {
-    // the visitor rebuilt from ~30k swirling code glyphs (acid), over a soft real base so
-    // they clearly recognise THEMSELVES; hands swirl the code (interactive)
+    // ambient swirling code-glyph field (background); hands swirl it (interactive)
     ofClear(4, 5, 9, 255);
-    ofSetColor(150);
-    for (auto& tr : cv.tracks) drawPersonReal(tr);       // faint real self underneath
-    ofSetColor(255);
-    ofEnableBlendMode(OF_BLENDMODE_ADD);
     drawWallSwarm();
-    ofEnableBlendMode(OF_BLENDMODE_ALPHA);
     for (auto& tr : cv.tracks) drawDet(tr, ofColor(200, 206, 212));
     drawHUD("SWARM.CODE");
 }
@@ -654,8 +668,6 @@ void ofApp::buildGlyphAtlas() {
 
 void ofApp::modeRain() {
     ofClear(0, 0, 0, 255);
-    for (auto& tr : cv.tracks) drawPersonReal(tr);        // SEE YOURSELF first, code rains over you
-    ofEnableBlendMode(OF_BLENDMODE_ADD);                  // additive -> the person shows through the rain
     coderain.begin();
     coderain.setUniformTexture("uCam", cv.cameraTexture(), 0);
     coderain.setUniformTexture("uSil", cv.silhouetteTexture(), 1);
@@ -666,7 +678,6 @@ void ofApp::modeRain() {
     ofSetColor(255);
     ofPushMatrix(); ofScale(rw, rh); unitQuad.draw(); ofPopMatrix();
     coderain.end();
-    ofEnableBlendMode(OF_BLENDMODE_ALPHA);
     for (auto& tr : cv.tracks)
         drawBox(trackRect(tr), "ID:" + ofToString(tr.id % 1000, 3, '0'), 0.80f + 0.18f * ofNoise(tr.id * 1.9f, t * 0.3f), ofColor(200, 210, 215));
     drawHUD("CODE.RAIN");
