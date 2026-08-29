@@ -32,6 +32,7 @@ private:
     ofFbo wallFbo, floorFbo;
     float t = 0, energy = 0, rw = WALL_W, rh = WALL_H;
     bool autoShot = false;
+    bool showDbg  = true;              // on-screen diagnostics ('i' toggles) — DNN / cam / tracks
     bool soundOn = true;               // refined minimal Ikeda-style sound
     int  previewMode = 2;              // default = FIT (whole single canvas). 0 WALL 1:1 · 1 FLOOR 1:1 · 2 FIT
     float panY = 0;

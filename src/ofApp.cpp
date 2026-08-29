@@ -1393,10 +1393,22 @@ void ofApp::draw() {
         if (fn >= 340) ofExit();
     }
 
+    if (showDbg) {                          // on-screen diagnostics (press 'i' to hide)
+        std::string dbg = "DNN:" + std::string(cv.detectorLoaded() ? "LOADED" : "NOT-LOADED")
+            + "  useDNN:" + ofToString((int)cv.usingDNN)
+            + "  CAM:" + ofToString(cv.camW) + "x" + ofToString(cv.camH)
+            + "  FRAME:" + ofToString((int)cv.haveFrame)
+            + "  DET:" + ofToString(cv.numDetections())
+            + "  TRK:" + ofToString((int)cv.tracks.size());
+        ofSetColor(0, 0, 0, 200); ofDrawRectangle(4, 4, 560, 24);
+        ofSetColor(0, 255, 130); fLabel.drawString(dbg, 10, 21);
+    }
+
     if (showPanel) gui.draw();
 }
 
 void ofApp::keyPressed(int key) {
+    if (key == 'i' || key == 'I') { showDbg = !showDbg; return; }
     if (key == 'p' || key == 'P') { showPanel = !showPanel; return; }
     if (key == 's' || key == 'S') { gui.saveToFile("layout.xml"); return; }
     if (key == 'f') { ofToggleFullscreen(); return; }

@@ -42,6 +42,8 @@ public:
 
     bool mirrorCam = true;                                // selfie mirror (source flipped once); 'm' toggles
     void toggleMirror() { mirrorCam = !mirrorCam; }
+    bool detectorLoaded() const { return haveNet; }      // diagnostics
+    int  numDetections()  const { return (int)personBoxes.size(); }
     void captureBg() { bgCaptured = false; learn = 0; }
     void nudgeThreshold(int d) { threshold = ofClamp(threshold + d, 4, 120); }
     int  getThreshold() const { return threshold; }

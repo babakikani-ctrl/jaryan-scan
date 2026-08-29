@@ -12,6 +12,8 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    permissions:
+      contents: write            # allow updating the download Release
     defaults:
       run:
         shell: pwsh
@@ -84,3 +86,12 @@ jobs:
           name: dataJaryanScan-windows
           path: OF/apps/myApps/dataJaryanScan/bin
           if-no-files-found: error
+
+      - name: Publish to Release (v1 — always latest)
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $proj = (Resolve-Path "OF\apps\myApps\dataJaryanScan").Path
+          Compress-Archive -Path "$proj\bin\*" -DestinationPath "dataJaryanScan-windows.zip" -Force
+          gh release upload v1 "dataJaryanScan-windows.zip" --clobber -R $env:GITHUB_REPOSITORY
