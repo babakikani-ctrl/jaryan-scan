@@ -58,35 +58,47 @@ jobs:
 
       - name: Kinect v2 support (optional — Kinect SDK 2.0 + ofxKinectForWindows2)
         continue-on-error: true
-        timeout-minutes: 12
+        timeout-minutes: 16
         run: |
           $app = "OF\apps\myApps\dataJaryanScan"
+          $ErrorActionPreference = "Continue"
+          # helper: are the SDK dev files present yet? (needs BOTH the header and the x64 import lib)
+          function Find-Kinect {
+            $h = @(Get-ChildItem "C:\ksdk","C:\Program Files\Microsoft SDKs\Kinect" -Recurse -Filter Kinect.h -EA SilentlyContinue) | Select-Object -First 1
+            $l = @(Get-ChildItem "C:\ksdk","C:\Program Files\Microsoft SDKs\Kinect" -Recurse -Filter Kinect20.lib -EA SilentlyContinue | Where-Object { $_.FullName -match 'x64' }) | Select-Object -First 1
+            if ($h -and $l) { return @($h,$l) } else { return $null }
+          }
           Write-Host "downloading Kinect SDK 2.0..."
           try {
-            curl.exe -L --retry 3 -o kinect.exe "https://download.microsoft.com/download/F/2/D/F2D1012E-3BC6-49C5-B8B3-5ACFF58AF7B8/KinectSDK-v2.0_1409-Setup.exe"
+            # bounded download so a slow mirror can't eat the whole budget
+            curl.exe -L --retry 2 --max-time 300 -o kinect.exe "https://download.microsoft.com/download/F/2/D/F2D1012E-3BC6-49C5-B8B3-5ACFF58AF7B8/KinectSDK-v2.0_1409-Setup.exe"
             Write-Host ("downloaded: " + (Get-Item kinect.exe).Length + " bytes")
             # STEP 1: extract the WiX bundle payloads WITHOUT installing (no driver, no hang) via /layout
             $lp = Start-Process -FilePath ".\kinect.exe" -ArgumentList "/layout","C:\klayout","/quiet" -PassThru
-            if (-not $lp.WaitForExit(180000)) { try { $lp.Kill() } catch {} }
-            Write-Host "layout extracted. MSIs found:"
-            Get-ChildItem C:\klayout -Recurse -Filter *.msi -EA SilentlyContinue | ForEach-Object { Write-Host ("  " + $_.FullName + "  (" + [int]($_.Length/1MB) + " MB)") }
-            # STEP 2: administrative-install each MSI (files-only extraction, no drivers, no registration -> no hang)
-            $msis = Get-ChildItem C:\klayout -Recurse -Filter *.msi -EA SilentlyContinue | Sort-Object Length -Descending
-            foreach ($m in $msis) {
-              Write-Host ("admin-installing " + $m.Name)
-              $mp = Start-Process msiexec -ArgumentList @("/a","`"$($m.FullName)`"","/qn","TARGETDIR=C:\ksdk") -PassThru
-              if (-not $mp.WaitForExit(120000)) { try { $mp.Kill() } catch {} }
-            }
-          } catch { Write-Host "kinect sdk extract failed: $_" }
-          # STEP 3: locate Kinect.h anywhere it landed (C:\ksdk from /a, or Program Files if /install partly ran)
-          $kh = @(Get-ChildItem "C:\ksdk","C:\Program Files\Microsoft SDKs\Kinect" -Recurse -Filter Kinect.h -EA SilentlyContinue) | Select-Object -First 1
-          $klib = @(Get-ChildItem "C:\ksdk","C:\Program Files\Microsoft SDKs\Kinect" -Recurse -Filter Kinect20.lib -EA SilentlyContinue | Where-Object { $_.FullName -match 'x64' }) | Select-Object -First 1
-          if ($kh) { Write-Host ("found Kinect.h -> " + $kh.FullName) } else { Write-Host "Kinect.h NOT found" }
-          if ($klib) { Write-Host ("found Kinect20.lib(x64) -> " + $klib.FullName) } else { Write-Host "Kinect20.lib(x64) NOT found" }
-          if ($kh -and $klib) {
-            # KINECTSDK20_DIR is the folder whose child is inc\Kinect.h  (parent of the 'inc' dir), with trailing slash
+            if (-not $lp.WaitForExit(150000)) { Write-Host "layout timed out -> killing"; try { $lp.Kill() } catch {} }
+          } catch { Write-Host "kinect sdk download/layout failed: $_" }
+          Write-Host "MSIs found in layout:"
+          $msis = @(Get-ChildItem C:\klayout -Recurse -Filter *.msi -EA SilentlyContinue | Sort-Object Length)
+          $msis | ForEach-Object { Write-Host ("  " + $_.Name + "  (" + [int]($_.Length/1MB) + " MB)") }
+          # STEP 2: admin-install each MSI (files-only extraction, no drivers). CHECK AFTER EACH and stop the
+          # instant the dev files appear -> we never touch the slow driver/runtime MSIs once we have what we need.
+          $found = $null
+          foreach ($m in $msis) {
+            Write-Host ("admin-installing " + $m.Name + " ...")
+            $mp = Start-Process msiexec -ArgumentList @("/a","`"$($m.FullName)`"","/qn","TARGETDIR=C:\ksdk") -PassThru
+            if (-not $mp.WaitForExit(90000)) { Write-Host "  (this MSI is slow -> killing, moving on)"; try { $mp.Kill() } catch {} }
+            $found = Find-Kinect
+            if ($found) { Write-Host "  -> SDK dev files now present, stopping extraction early"; break }
+          }
+          # STEP 3: enable Kinect if the header + x64 lib are present
+          if (-not $found) { $found = Find-Kinect }
+          if ($found) {
+            $kh = $found[0]; $klib = $found[1]
+            Write-Host ("found Kinect.h  -> " + $kh.FullName)
+            Write-Host ("found Kinect20.lib -> " + $klib.FullName)
+            # KINECTSDK20_DIR is the folder whose child is inc\Kinect.h  (parent of the 'inc' dir), trailing slash
             $kdir = (Split-Path (Split-Path $kh.FullName -Parent) -Parent) + "\"
-            Write-Host "Kinect SDK present -> enabling Kinect v2.  KINECTSDK20_DIR=$kdir"
+            Write-Host "Kinect SDK present -> ENABLING Kinect v2.  KINECTSDK20_DIR=$kdir"
             "KINECTSDK20_DIR=$kdir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding ascii
             git clone --depth 1 https://github.com/elliotwoods/ofxKinectForWindows2.git OF\addons\ofxKinectForWindows2 2>&1 | Out-Null
             Add-Content -Path "$app\addons.make" -Value "ofxKinectForWindows2"
@@ -95,7 +107,7 @@ jobs:
             Set-Content -Path "$app\Directory.Build.props" -Value $props -Encoding ascii
             Write-Host "addons.make now:"; Get-Content "$app\addons.make"
           } else {
-            Write-Host "Kinect SDK NOT installed -> building WITHOUT Kinect (RTSP/webcam still work)"
+            Write-Host "Kinect SDK dev files NOT found -> building WITHOUT Kinect (RTSP/webcam still work)"
           }
 
       - name: Generate Visual Studio project
