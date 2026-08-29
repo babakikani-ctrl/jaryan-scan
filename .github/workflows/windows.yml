@@ -72,9 +72,9 @@ jobs:
             Write-Host "ofxNDI clone failed -> NDI define is set but addon missing (build may fail); check network"
           }
 
-      - name: Kinect v2 support (optional — Kinect SDK 2.0 + ofxKinectForWindows2)
+      - name: Kinect v2 support (vendored SDK only — otherwise use TouchDesigner->NDI)
         continue-on-error: true
-        timeout-minutes: 22
+        timeout-minutes: 6
         run: |
           $app = "OF\apps\myApps\dataJaryanScan"
           $ErrorActionPreference = "Continue"
@@ -84,28 +84,21 @@ jobs:
             $l = @(Get-ChildItem "C:\ksdk","C:\Program Files\Microsoft SDKs\Kinect" -Recurse -Filter Kinect20.lib -EA SilentlyContinue | Where-Object { $_.FullName -match 'x64' }) | Select-Object -First 1
             if ($h -and $l) { return @($h,$l) } else { return $null }
           }
-          Write-Host "downloading Kinect SDK 2.0..."
-          $msiRoot = $null
-          try {
-            # bounded download so a slow mirror can't eat the whole budget (measured: ~20s for 289 MB)
-            curl.exe -L --retry 2 --max-time 300 -o kinect.exe "https://download.microsoft.com/download/F/2/D/F2D1012E-3BC6-49C5-B8B3-5ACFF58AF7B8/KinectSDK-v2.0_1409-Setup.exe"
-            Write-Host ("downloaded: " + (Get-Item kinect.exe).Length + " bytes")
-            # STEP 1a: FAST PATH — 7-Zip can unpack a WiX burn bundle's embedded MSIs directly (no installer engine)
-            $sz = (Get-Command 7z -EA SilentlyContinue).Source; if (-not $sz) { $sz = "C:\Program Files\7-Zip\7z.exe" }
-            if (Test-Path $sz) {
-              & $sz x kinect.exe "-oC:\kx" -y 2>&1 | Out-Null
-              # burn bundles often nest the MSIs inside .cab/attached containers -> unpack those too
-              Get-ChildItem C:\kx -Recurse -Include *.cab -EA SilentlyContinue | ForEach-Object { & $sz x $_.FullName "-oC:\kx" -y 2>&1 | Out-Null }
-              if (@(Get-ChildItem C:\kx -Recurse -Filter *.msi -EA SilentlyContinue).Count -gt 0) { $msiRoot = "C:\kx"; Write-Host "7-Zip extracted MSIs -> $msiRoot" }
-              else { Write-Host "7-Zip produced no MSIs, will use /layout" }
-            }
-            # STEP 1b: FALLBACK — WiX /layout writes all payloads to disk (needs a few min for ~289 MB)
-            if (-not $msiRoot) {
-              $lp = Start-Process -FilePath ".\kinect.exe" -ArgumentList "/layout","C:\klayout","/quiet" -PassThru
-              if (-not $lp.WaitForExit(420000)) { Write-Host "layout timed out -> killing"; try { $lp.Kill() } catch {} }
-              $msiRoot = "C:\klayout"
-            }
-          } catch { Write-Host "kinect sdk download/extract failed: $_"; if (-not $msiRoot) { $msiRoot = "C:\klayout" } }
+          # NOTE: the Microsoft Kinect SDK 2.0 installer does NOT extract in CI — WiX /layout runs for minutes
+          # and produces zero MSIs, and 7-Zip can't unpack the burn bundle either (both verified 2026-08-30).
+          # So we DON'T download it (that wasted ~7-15 min per build). Kinect for the show goes through
+          # TouchDesigner -> NDI -> app (already built in, no special compile needed).
+          # To compile Kinect support DIRECTLY anyway, vendor the two dev files into the repo:
+          #   third_party/KinectSDK/inc/Kinect.h  +  third_party/KinectSDK/Lib/x64/Kinect20.lib
+          # (copy them from an installed SDK: C:\Program Files\Microsoft SDKs\Kinect\v2.0_1409\). Then this
+          # step picks them up automatically and enables Kinect.
+          $msiRoot = "C:\klayout"; New-Item -ItemType Directory -Force -Path C:\klayout,C:\ksdk | Out-Null
+          if ((Test-Path "proj\third_party\KinectSDK\inc\Kinect.h") -and (Test-Path "proj\third_party\KinectSDK\Lib\x64\Kinect20.lib")) {
+            Copy-Item "proj\third_party\KinectSDK\*" C:\ksdk -Recurse -Force
+            Write-Host "using VENDORED Kinect SDK dev files (third_party/KinectSDK) -> enabling Kinect"
+          } else {
+            Write-Host "Kinect direct-build SKIPPED (no vendored SDK). Use TouchDesigner->NDI for the Kinect image. RTSP/NDI/webcam all work."
+          }
           Write-Host "MSIs found in $msiRoot :"
           # order: SDK/dev MSIs FIRST (they hold Kinect.h + Kinect20.lib), driver/runtime LAST (slow, unneeded).
           # combined with break-early below, we grab the headers fast and never touch the driver installer.
