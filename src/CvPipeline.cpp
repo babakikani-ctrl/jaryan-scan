@@ -25,6 +25,14 @@ void CvPipeline::setup(bool fakeCam, int w, int h) {
         ofFile sf(ofToDataPath("source.txt", true));
         if (sf.exists()) src = ofTrim(ofBufferFromFile(sf.getAbsolutePath()).getText());
     }
+#ifdef JARYAN_KINECT
+    if (!fake && (src == "kinect" || src == "KINECT")) {
+        useKinect = true; sourceLabel = "KINECT";
+        kinect.open();
+        kinect.initColorSource();                 // COLOR only — no depth
+        ofLogNotice("CvPipeline") << "Kinect v2 color source opened";
+    }
+#endif
 #ifdef JARYAN_RTSP
     if (!fake && !src.empty() && (src.rfind("rtsp://", 0) == 0 || src.rfind("http", 0) == 0)) {
         useRtsp = true; rtspUrl = src; sourceLabel = "RTSP";
@@ -38,6 +46,9 @@ void CvPipeline::setup(bool fakeCam, int w, int h) {
     if (fake) {
         fakeImg.allocate(w, h, OF_IMAGE_COLOR); sourceLabel = "FAKE";
     }
+#ifdef JARYAN_KINECT
+    else if (useKinect) { /* frames come from the Kinect color source */ }
+#endif
 #ifdef JARYAN_RTSP
     else if (useRtsp) { /* frames arrive on the RTSP thread */ }
 #endif
@@ -73,6 +84,9 @@ CvPipeline::~CvPipeline() {
 #ifdef JARYAN_RTSP
     rtspRun = false;
     if (rtspThread.joinable()) rtspThread.join();
+#endif
+#ifdef JARYAN_KINECT
+    if (useKinect) kinect.close();
 #endif
 }
 
@@ -170,6 +184,23 @@ void CvPipeline::makeFake() {
 
 void CvPipeline::update(float dt) {
     bool isNew = false;
+#ifdef JARYAN_KINECT
+    if (useKinect) {
+        kinect.update();
+        auto cs = kinect.getColorSource();
+        if (cs && cs->isFrameNew()) {
+            ofPixels p = cs->getPixels();                 // Kinect v2 colour (1920x1080)
+            if (p.getWidth() > 0) {
+                if (p.getNumChannels() >= 3) p.setImageType(OF_IMAGE_COLOR);   // drop alpha -> RGB
+                if ((int)p.getWidth() != camW || (int)p.getHeight() != camH) p.resize(camW, camH);
+                if (mirrorCam) p.mirror(false, true);
+                color.setFromPixels(p);
+                camImg.setFromPixels(p);
+                isNew = true;
+            }
+        }
+    } else
+#endif
 #ifdef JARYAN_RTSP
     if (useRtsp) {
         cv::Mat f;

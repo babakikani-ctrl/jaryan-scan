@@ -16,6 +16,10 @@
 #include <atomic>
 #include <chrono>
 #endif
+// Kinect v2 as a plain COLOR camera (no depth) — set source.txt to "kinect". Windows only.
+#ifdef JARYAN_KINECT
+#include "ofxKinectForWindows2.h"
+#endif
 
 // Webcam -> foreground -> contours + tracked subjects + motion energy.
 // Fake-cam mode (JARYAN_FAKECAM) synthesizes moving figures for headless testing.
@@ -81,6 +85,10 @@ private:
     std::vector<unsigned char> personMask;  // camW*camH, 1 inside a detected person
 
     ofVideoGrabber grabber;
+#ifdef JARYAN_KINECT
+    bool useKinect = false;
+    ofxKFW2::Device kinect;
+#endif
 #ifdef JARYAN_RTSP
     bool useRtsp = false;
     std::string rtspUrl;

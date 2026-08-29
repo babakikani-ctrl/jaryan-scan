@@ -56,6 +56,29 @@ jobs:
           Set-Content -Path "$app\Directory.Build.props" -Value $props -Encoding ascii
           Get-ChildItem $app | Select-Object Name | Format-Table -AutoSize
 
+      - name: Kinect v2 support (optional — Kinect SDK 2.0 + ofxKinectForWindows2)
+        continue-on-error: true
+        run: |
+          $app = "OF\apps\myApps\dataJaryanScan"
+          $kdir = "C:\Program Files\Microsoft SDKs\Kinect\v2.0_1409\"
+          Write-Host "downloading Kinect SDK 2.0..."
+          try {
+            curl.exe -L --retry 2 -o kinect.exe "https://download.microsoft.com/download/F/2/D/F2D1012E-3BC6-49C5-B8B3-5ACFF58AF7B8/KinectSDK-v2.0_1409-Setup.exe"
+            Start-Process -FilePath ".\kinect.exe" -ArgumentList "/install","/quiet","/norestart" -Wait -ErrorAction SilentlyContinue
+          } catch { Write-Host "kinect sdk install failed: $_" }
+          if (Test-Path "$kdir\inc\Kinect.h") {
+            Write-Host "Kinect SDK present -> enabling Kinect v2"
+            "KINECTSDK20_DIR=$kdir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding ascii
+            git clone --depth 1 https://github.com/elliotwoods/ofxKinectForWindows2.git OF\addons\ofxKinectForWindows2 2>&1 | Out-Null
+            Add-Content -Path "$app\addons.make" -Value "ofxKinectForWindows2"
+            # rewrite the props to also define JARYAN_KINECT
+            $props = '<Project><ItemDefinitionGroup><ClCompile><PreprocessorDefinitions>JARYAN_RTSP;JARYAN_KINECT;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile><Link><AdditionalDependencies>opencv_videoio460.lib;%(AdditionalDependencies)</AdditionalDependencies></Link></ItemDefinitionGroup></Project>'
+            Set-Content -Path "$app\Directory.Build.props" -Value $props -Encoding ascii
+            Write-Host "addons.make now:"; Get-Content "$app\addons.make"
+          } else {
+            Write-Host "Kinect SDK NOT installed -> building WITHOUT Kinect (RTSP/webcam still work)"
+          }
+
       - name: Generate Visual Studio project
         run: |
           $of   = (Resolve-Path "OF").Path
