@@ -28,7 +28,8 @@ void CvPipeline::setup(bool fakeCam, int w, int h) {
 #ifdef JARYAN_RTSP
     if (!fake && !src.empty() && (src.rfind("rtsp://", 0) == 0 || src.rfind("http", 0) == 0)) {
         useRtsp = true; rtspUrl = src; sourceLabel = "RTSP";
-        _putenv_s("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp");   // reliable RTSP over LAN
+        // reliable RTSP over LAN + LOW LATENCY (no buffering, minimal delay) for interactivity
+        _putenv_s("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay|max_delay;120000|reorder_queue_size;0");
         rtspRun = true;
         rtspThread = std::thread(&CvPipeline::rtspLoop, this);
         ofLogNotice("CvPipeline") << "RTSP source: " << rtspUrl;
@@ -88,6 +89,7 @@ void CvPipeline::rtspLoop() {
         if (!vcap.isOpened()) {
             vcap.open(rtspUrl, cv::CAP_FFMPEG);
             if (!vcap.isOpened()) { rtspConnected = false; std::this_thread::sleep_for(std::chrono::milliseconds(800)); continue; }
+            vcap.set(cv::CAP_PROP_BUFFERSIZE, 1);      // keep only the newest frame -> minimal latency
             rtspConnected = true;
         }
         cv::Mat f;
