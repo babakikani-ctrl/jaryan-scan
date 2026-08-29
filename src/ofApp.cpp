@@ -81,14 +81,38 @@ void ofApp::setup() {
     floorX.set("floorX", 0, 0, 4096);      floorY.set("floorY", WALL_H, 0, 8192);
     floorW.set("floorW", FLOOR_W, 16, 4096); floorH.set("floorH", FLOOR_H, 16, 8192);
     showSeam.set("show seam", false);
-    gui.setup("LAYOUT  P:hide  s:save");
-    gui.add(ifCanvasW.setup(canvasW));           // click a field and TYPE an exact number
-    gui.add(ifCanvasH.setup(canvasH));
+    // ---- live controls (tune everything on-site) ----
+    pMirror.set("mirror", true);
+    pAutoCycle.set("auto-cycle worlds", true);
+    pManualMode.set("manual world 0-9", 0, 0, 9);
+    pDetConf.set("detect sensitivity", 0.45f, 0.10f, 0.95f);
+    pCutSec.set("world seconds", 120, 5, 300);
+    pBright.set("brightness", 1.0f, 0.2f, 1.6f);
+    pGlitch.set("glitch", 0.0f, 0.0f, 1.0f);
+    pEnergy.set("interactivity", 1.0f, 0.2f, 3.0f);
+    pShowPerson.set("show person", true);
+    pRim.set("person rim/scan", 1.0f, 0.0f, 2.0f);
+    pTermSpeed.set("terminal speed", 1.0f, 0.2f, 3.0f);
+    pShowDbgP.set("show debug (i)", true);
+
+    gui.setup("CONTROL  P:hide  s:save");
+    gui.add(ifCanvasW.setup(canvasW)); gui.add(ifCanvasH.setup(canvasH));   // typeable exact numbers
     gui.add(ifWallX.setup(wallX));   gui.add(ifWallY.setup(wallY));
     gui.add(ifWallW.setup(wallW));   gui.add(ifWallH.setup(wallH));
     gui.add(ifFloorX.setup(floorX)); gui.add(ifFloorY.setup(floorY));
     gui.add(ifFloorW.setup(floorW)); gui.add(ifFloorH.setup(floorH));
     gui.add(showSeam);
+    gui.add(pMirror); gui.add(pAutoCycle); gui.add(pManualMode);
+    gui.add(pDetConf); gui.add(pCutSec);
+    gui.add(pBright); gui.add(pGlitch); gui.add(pEnergy);
+    gui.add(pShowPerson); gui.add(pRim); gui.add(pTermSpeed);
+    gui.add(pShowDbgP);
+    gui.add(btnReconnect.setup("reconnect camera"));
+    gui.add(btnRelearnBg.setup("relearn background"));
+    gui.add(btnFullscreen.setup("fullscreen"));
+    btnReconnect.addListener(this, &ofApp::onReconnect);
+    btnRelearnBg.addListener(this, &ofApp::onRelearnBg);
+    btnFullscreen.addListener(this, &ofApp::onFullscreen);
     gui.loadFromFile("layout.xml");
     gui.setPosition(10, 10);
 
@@ -131,8 +155,13 @@ void ofApp::update() {
     energyHist.push_back(energy);
     if ((int)energyHist.size() > 600) energyHist.erase(energyHist.begin());
 
-    modeT += dt;
-    if (!autoShot && modeT > nextCut) cut();
+    cv.mirrorCam = pMirror;                                    // live panel controls
+    cv.setDetConf(pDetConf);
+    showDbg = pShowDbgP;
+    if (!autoShot) {
+        if (pAutoCycle) { modeT += dt; if (modeT > nextCut) cut(); }
+        else            { mode = ofClamp((int)pManualMode, 0, nEffects - 1); modeT = 0; }
+    }
 
     cyber = std::max(0.0f, cyber - dt * 1.8f);                 // cyber-burst decays
     if (!autoShot && ofRandom(1) < 0.006f) cyber = ofRandom(0.6f, 1.0f);   // occasional intense cyber/glitch moment
@@ -143,9 +172,13 @@ void ofApp::update() {
 void ofApp::cut() {
     int nm; do { nm = (int)ofRandom(nEffects); } while (nm == mode && nEffects > 1);
     mode = nm; modeT = 0;
-    nextCut = ofRandom(110.0f, 135.0f);    // ~2 minutes per world — calm, immersive; visitors settle in
+    nextCut = pCutSec;                     // world duration from the panel (default ~2 min)
     triggerCut();
 }
+
+void ofApp::onReconnect()  { cv.reconnectSource(); }
+void ofApp::onRelearnBg()  { cv.captureBg(); }
+void ofApp::onFullscreen() { ofToggleFullscreen(); ofHideCursor(); }
 
 // ================================================================= helpers
 ofRectangle ofApp::trackRect(const CvTrack& tr) {
@@ -208,6 +241,7 @@ void ofApp::drawPersonFg() {
     personFg.setUniformTexture("uSil", cv.subjectTexture(), 1);       // only DETECTED people (no background clutter)
     personFg.setUniform2f("uTexel", 1.0f / cv.camW, 1.0f / cv.camH);
     personFg.setUniform1f("uTime", t);
+    personFg.setUniform1f("uRim", pRim);
     ofSetColor(255);
     ofPushMatrix(); ofScale(rw, rh); unitQuad.draw(); ofPopMatrix();
     personFg.end();
@@ -233,6 +267,7 @@ void ofApp::updateMotionTrail() {
             float m = d[idx] / 255.0f;
             if (m < 0.10f) continue;
             float e = ofClamp((m - 0.10f) / 0.45f, 0, 1);
+            e = ofClamp(e * pEnergy.get(), 0.0f, 1.0f);         // interactivity strength (panel)
             float sx = u * WALL_W, sy = v * WALL_H;              // source already mirrored -> follows the hands
             ofColor col = ofColor(40, 190, 255).getLerped(ofColor(255, 70, 210), e);   // cyan -> magenta by speed
             ofSetColor(col, (int)(110 * e)); ofDrawCircle(sx, sy, 10 + e * 34);         // big soft aura
@@ -261,6 +296,7 @@ void ofApp::drawMotionSparks() {
         float m = d[idx] / 255.0f;
         if (m < 0.12f) continue;
         float e = ofClamp((m - 0.12f) / 0.5f, 0, 1);
+        e = ofClamp(e * pEnergy.get(), 0.0f, 1.0f);
         float sx = u * rw, sy = v * rh;                             // source already mirrored -> follows the visitor
         ofSetColor(150, 230, 255, (int)(235 * e)); ofSetLineWidth(1.0f + e * 1.8f);   // radiating energy tendrils
         int ns = 5 + (int)(e * 9);
@@ -297,6 +333,7 @@ void ofApp::drawMotionCode() {
         float m = d[idx] / 255.0f;
         if (m < 0.20f) continue;
         float e = ofClamp((m - 0.20f) / 0.5f, 0, 1);
+        e = ofClamp(e * pEnergy.get(), 0.0f, 1.0f);
         float sx = u * rw, sy = v * rh;
         std::string s(1, CH[(gx * 7 + gy * 13 + frame) % nc]);
         ofColor col = pal[(gx + gy * 2 + frame / 3) % 6];
@@ -376,7 +413,7 @@ void ofApp::renderWall() {
     else if (mode == 7) modeOrbit();
     else if (mode == 8) modeScan();
     else                modeWallSwarm();           // the acid code-glyph swarm — one of the changing worlds
-    drawPersonFg();                                 // CLEAR tracked visitor IN FRONT of the effect
+    if (pShowPerson) drawPersonFg();                // CLEAR tracked visitor IN FRONT of the effect
     if (!cv.tracks.empty()) {                       // interactive energy: white glow + sparks + readable code
         ofEnableBlendMode(OF_BLENDMODE_ADD); ofSetColor(255);
         motionFbo[trailCur].draw(0, 0);
@@ -626,12 +663,13 @@ void ofApp::modeOrbit() {
 
 void ofApp::drawWallTex(float x, float y, float w, float h) {
     float trans = modeT < 0.12f ? (1.0f - modeT / 0.12f) * 0.85f : 0.0f;        // designed glitch flash on each cut
-    float amt = ofClamp(0.03f + energy * 0.30f + cyber + trans, 0.0f, 1.0f);    // subtle base + motion + cyber + transition
+    float amt = ofClamp(0.03f + energy * 0.30f + cyber + trans + pGlitch, 0.0f, 1.0f);   // + panel glitch
     glitchPost.begin();
     glitchPost.setUniformTexture("uCol", wallFbo.getTexture(), 0);
     glitchPost.setUniform2f("uRes", WALL_W, WALL_H);
     glitchPost.setUniform1f("uTime", t);
     glitchPost.setUniform1f("uAmt", amt);
+    glitchPost.setUniform1f("uBright", pBright);
     ofSetColor(255);
     wallFbo.draw(x, y, w, h);
     glitchPost.end();
@@ -1011,7 +1049,7 @@ void ofApp::updateTerminal(float dt) {
     }
     if (ofRandom(1) < 0.02f + energy * 0.06f) floorGlitch = std::max(floorGlitch, ofRandom(0.3f, 0.7f));
 
-    float speed = 42.0f + energy * 90.0f;                    // typing speed rises with motion
+    float speed = (42.0f + energy * 90.0f) * pTermSpeed;     // typing speed rises with motion (+ panel)
     termAcc += dt * speed;
     int guard = 0;
     while (termAcc >= 1.0f && guard++ < 400) {
@@ -1080,12 +1118,13 @@ void ofApp::drawTerminal() {
 }
 
 void ofApp::drawFloorTex(float x, float y, float w, float h) {
-    float amt = ofClamp(floorGlitch + termGather * 0.7f + energy * 0.10f, 0.0f, 1.0f);
+    float amt = ofClamp(floorGlitch + termGather * 0.7f + energy * 0.10f + pGlitch, 0.0f, 1.0f);
     glitchPost.begin();
     glitchPost.setUniformTexture("uCol", floorFbo.getTexture(), 0);
     glitchPost.setUniform2f("uRes", FLOOR_W, FLOOR_H);
     glitchPost.setUniform1f("uTime", t);
     glitchPost.setUniform1f("uAmt", amt);
+    glitchPost.setUniform1f("uBright", pBright);
     ofSetColor(255);
     floorFbo.draw(x, y, w, h);
     glitchPost.end();
@@ -1409,7 +1448,7 @@ void ofApp::draw() {
 }
 
 void ofApp::keyPressed(int key) {
-    if (key == 'i' || key == 'I') { showDbg = !showDbg; return; }
+    if (key == 'i' || key == 'I') { pShowDbgP = !pShowDbgP; return; }
     if (key == 'p' || key == 'P') { showPanel = !showPanel; return; }
     if (key == 's' || key == 'S') { gui.saveToFile("layout.xml"); return; }
     if (key == 'f') { ofToggleFullscreen(); return; }

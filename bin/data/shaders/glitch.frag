@@ -7,6 +7,7 @@ uniform sampler2D uCol;
 uniform vec2  uRes;
 uniform float uTime;
 uniform float uAmt;      // 0..1 glitch intensity
+uniform float uBright;   // global brightness (panel)
 
 in  vec2 vUv;
 out vec4 outColor;
@@ -48,5 +49,5 @@ void main(){
     vec2 q = uv - 0.5;
     col *= mix(0.55, 1.0, smoothstep(0.95, 0.30, length(q)));
 
-    outColor = vec4(col, 1.0);
+    outColor = vec4(col * uBright, 1.0);
 }

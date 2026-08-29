@@ -6,6 +6,7 @@ uniform sampler2D uCam;
 uniform sampler2D uSil;      // subject mask
 uniform vec2  uTexel;
 uniform float uTime;
+uniform float uRim;       // rim/scan intensity (panel), ~0..2
 in  vec2 vUv;
 out vec4 outColor;
 
@@ -25,9 +26,9 @@ void main(){
 
     float ly   = fract(uTime * 0.07);                   // slow scan sweep down the body
     float band = smoothstep(0.045, 0.0, abs(vUv.y - ly));
-    c += vec3(0.30, 0.70, 0.85) * band * a * 0.45;      // faint cyan scan light
+    c += vec3(0.30, 0.70, 0.85) * band * a * 0.45 * uRim;   // faint cyan scan light
 
-    c += vec3(0.14, 0.52, 0.66) * edge * 0.5;           // delicate rim
+    c += vec3(0.14, 0.52, 0.66) * edge * 0.5 * uRim;        // delicate rim
 
-    outColor = vec4(c, max(a, edge * 0.5));
+    outColor = vec4(c, max(a, edge * 0.5 * clamp(uRim,0.0,1.0)));
 }

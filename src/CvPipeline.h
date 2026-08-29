@@ -62,6 +62,7 @@ public:
         return true;
     }
     void reconnectSource();                               // panel: force a re-open of the source
+    void setDetConf(float c) { detConf = ofClamp(c, 0.10f, 0.95f); }   // detection confidence threshold
     void captureBg() { bgCaptured = false; learn = 0; }
     void nudgeThreshold(int d) { threshold = ofClamp(threshold + d, 4, 120); }
     int  getThreshold() const { return threshold; }
