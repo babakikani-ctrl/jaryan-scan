@@ -74,7 +74,7 @@ jobs:
 
       - name: Kinect v2 support (optional — Kinect SDK 2.0 + ofxKinectForWindows2)
         continue-on-error: true
-        timeout-minutes: 16
+        timeout-minutes: 22
         run: |
           $app = "OF\apps\myApps\dataJaryanScan"
           $ErrorActionPreference = "Continue"
@@ -85,18 +85,31 @@ jobs:
             if ($h -and $l) { return @($h,$l) } else { return $null }
           }
           Write-Host "downloading Kinect SDK 2.0..."
+          $msiRoot = $null
           try {
-            # bounded download so a slow mirror can't eat the whole budget
+            # bounded download so a slow mirror can't eat the whole budget (measured: ~20s for 289 MB)
             curl.exe -L --retry 2 --max-time 300 -o kinect.exe "https://download.microsoft.com/download/F/2/D/F2D1012E-3BC6-49C5-B8B3-5ACFF58AF7B8/KinectSDK-v2.0_1409-Setup.exe"
             Write-Host ("downloaded: " + (Get-Item kinect.exe).Length + " bytes")
-            # STEP 1: extract the WiX bundle payloads WITHOUT installing (no driver, no hang) via /layout
-            $lp = Start-Process -FilePath ".\kinect.exe" -ArgumentList "/layout","C:\klayout","/quiet" -PassThru
-            if (-not $lp.WaitForExit(150000)) { Write-Host "layout timed out -> killing"; try { $lp.Kill() } catch {} }
-          } catch { Write-Host "kinect sdk download/layout failed: $_" }
-          Write-Host "MSIs found in layout:"
+            # STEP 1a: FAST PATH — 7-Zip can unpack a WiX burn bundle's embedded MSIs directly (no installer engine)
+            $sz = (Get-Command 7z -EA SilentlyContinue).Source; if (-not $sz) { $sz = "C:\Program Files\7-Zip\7z.exe" }
+            if (Test-Path $sz) {
+              & $sz x kinect.exe "-oC:\kx" -y 2>&1 | Out-Null
+              # burn bundles often nest the MSIs inside .cab/attached containers -> unpack those too
+              Get-ChildItem C:\kx -Recurse -Include *.cab -EA SilentlyContinue | ForEach-Object { & $sz x $_.FullName "-oC:\kx" -y 2>&1 | Out-Null }
+              if (@(Get-ChildItem C:\kx -Recurse -Filter *.msi -EA SilentlyContinue).Count -gt 0) { $msiRoot = "C:\kx"; Write-Host "7-Zip extracted MSIs -> $msiRoot" }
+              else { Write-Host "7-Zip produced no MSIs, will use /layout" }
+            }
+            # STEP 1b: FALLBACK — WiX /layout writes all payloads to disk (needs a few min for ~289 MB)
+            if (-not $msiRoot) {
+              $lp = Start-Process -FilePath ".\kinect.exe" -ArgumentList "/layout","C:\klayout","/quiet" -PassThru
+              if (-not $lp.WaitForExit(420000)) { Write-Host "layout timed out -> killing"; try { $lp.Kill() } catch {} }
+              $msiRoot = "C:\klayout"
+            }
+          } catch { Write-Host "kinect sdk download/extract failed: $_"; if (-not $msiRoot) { $msiRoot = "C:\klayout" } }
+          Write-Host "MSIs found in $msiRoot :"
           # order: SDK/dev MSIs FIRST (they hold Kinect.h + Kinect20.lib), driver/runtime LAST (slow, unneeded).
           # combined with break-early below, we grab the headers fast and never touch the driver installer.
-          $msis = @(Get-ChildItem C:\klayout -Recurse -Filter *.msi -EA SilentlyContinue |
+          $msis = @(Get-ChildItem $msiRoot -Recurse -Filter *.msi -EA SilentlyContinue |
                     Sort-Object @{Expression={ if ($_.Name -match 'SDK') {0} elseif ($_.Name -match 'Runtime|Driver|Speech|Face|Fusion') {3} else {1} }}, @{Expression={$_.Length}; Descending=$true})
           $msis | ForEach-Object { Write-Host ("  " + $_.Name + "  (" + [int]($_.Length/1MB) + " MB)") }
           # STEP 2: admin-install each MSI (files-only extraction, no drivers). CHECK AFTER EACH and stop the
