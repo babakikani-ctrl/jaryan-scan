@@ -51,8 +51,9 @@ jobs:
           Copy-Item proj\src        $app -Recurse -Force
           Copy-Item proj\bin        $app -Recurse -Force
           Copy-Item proj\addons.make $app -Force
-          # DNN person-detection ENABLED (ofxOpenCv-vs ships opencv_dnn, same as macOS) — it is the
-          # most important feature; the app must behave identically to the mac build.
+          # DNN person-detection ENABLED + RTSP/IP-camera ENABLED (JARYAN_RTSP): link opencv_videoio.
+          $props = '<Project><ItemDefinitionGroup><ClCompile><PreprocessorDefinitions>JARYAN_RTSP;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile><Link><AdditionalDependencies>opencv_videoio460.lib;%(AdditionalDependencies)</AdditionalDependencies></Link></ItemDefinitionGroup></Project>'
+          Set-Content -Path "$app\Directory.Build.props" -Value $props -Encoding ascii
           Get-ChildItem $app | Select-Object Name | Format-Table -AutoSize
 
       - name: Generate Visual Studio project
@@ -88,6 +89,19 @@ jobs:
           msbuild $sln /p:Configuration=Release /p:Platform=x64 /m /verbosity:minimal /nologo
           Write-Host "--- bin ---"
           Get-ChildItem "$proj\bin" | Select-Object Name,Length | Format-Table -AutoSize
+
+      - name: Bundle OpenCV FFmpeg backend (RTSP) + verify all DLLs
+        run: |
+          $proj = (Resolve-Path "OF\apps\myApps\dataJaryanScan").Path
+          Write-Host "downloading opencv 4.6.0 (for the ffmpeg videoio backend dll)..."
+          curl.exe -L --retry 3 -o ocv.exe https://github.com/opencv/opencv/releases/download/4.6.0/opencv-4.6.0-vc14_vc15.exe
+          7z x ocv.exe -oocvx -y -r "opencv_videoio_ffmpeg460_64.dll" | Out-Null
+          $dll = Get-ChildItem -Path ocvx -Recurse -Filter opencv_videoio_ffmpeg460_64.dll -EA SilentlyContinue | Select-Object -First 1
+          if (-not $dll) { Write-Error "opencv_videoio_ffmpeg460_64.dll not found in opencv release"; exit 1 }
+          Copy-Item $dll.FullName "$proj\bin\" -Force
+          Write-Host "bundled ffmpeg backend: $($dll.Name)  ($([math]::Round($dll.Length/1MB,1)) MB)"
+          Write-Host "--- final bin dlls ---"
+          Get-ChildItem "$proj\bin" -Filter *.dll | Select-Object Name | Format-Table -AutoSize
 
       - name: Upload Windows build
         uses: actions/upload-artifact@v4

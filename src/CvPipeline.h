@@ -7,6 +7,15 @@
 #ifndef JARYAN_NO_DNN
 #include <opencv2/dnn.hpp>
 #endif
+// RTSP / IP-camera input via cv::VideoCapture (opencv videoio + ffmpeg). Enabled where the
+// platform's ofxOpenCv ships opencv_videoio (Windows). Source is set in bin/data/source.txt.
+#ifdef JARYAN_RTSP
+#include <opencv2/videoio.hpp>
+#include <thread>
+#include <mutex>
+#include <atomic>
+#include <chrono>
+#endif
 
 // Webcam -> foreground -> contours + tracked subjects + motion energy.
 // Fake-cam mode (JARYAN_FAKECAM) synthesizes moving figures for headless testing.
@@ -22,6 +31,7 @@ struct CvTrack {
 
 class CvPipeline {
 public:
+    ~CvPipeline();
     void setup(bool fakeCam, int w = 640, int h = 480);
     void update(float dt);
 
@@ -44,6 +54,14 @@ public:
     void toggleMirror() { mirrorCam = !mirrorCam; }
     bool detectorLoaded() const { return haveNet; }      // diagnostics
     int  numDetections()  const { return (int)personBoxes.size(); }
+    std::string sourceLabel = "CAM";                      // "RTSP" / "CAM" / "FAKE"
+    bool isConnected() const {                            // RTSP link status (true for webcam/fake)
+#ifdef JARYAN_RTSP
+        if (useRtsp) return rtspConnected.load();
+#endif
+        return true;
+    }
+    void reconnectSource();                               // panel: force a re-open of the source
     void captureBg() { bgCaptured = false; learn = 0; }
     void nudgeThreshold(int d) { threshold = ofClamp(threshold + d, 4, 120); }
     int  getThreshold() const { return threshold; }
@@ -62,6 +80,19 @@ private:
     std::vector<unsigned char> personMask;  // camW*camH, 1 inside a detected person
 
     ofVideoGrabber grabber;
+#ifdef JARYAN_RTSP
+    bool useRtsp = false;
+    std::string rtspUrl;
+    cv::VideoCapture vcap;
+    std::thread rtspThread;
+    std::mutex rtspMx;
+    cv::Mat rtspFrame;                       // latest BGR frame from the network camera
+    std::atomic<bool> rtspNew{false};
+    std::atomic<bool> rtspRun{false};
+    std::atomic<bool> rtspConnected{false};
+    std::atomic<bool> rtspReopen{false};
+    void rtspLoop();
+#endif
     ofImage fakeImg, camImg, silImg, subjImg, motionImg;
     ofxCvColorImage color;
     ofxCvGrayscaleImage gray, bg, diff, prevGray, motionCv;

@@ -17,12 +17,34 @@ void CvPipeline::setup(bool fakeCam, int w, int h) {
     prevGray.allocate(w, h); motionCv.allocate(w, h);
     motionImg.allocate(w, h, OF_IMAGE_GRAYSCALE);
     motionImg.getPixels().set(0); motionImg.update();
+
+    // ---- pick the video source: RTSP / IP-camera (bin/data/source.txt or env JARYAN_SOURCE) else webcam ----
+    std::string src;
+    if (const char* e = getenv("JARYAN_SOURCE")) src = e;
+    if (src.empty()) {
+        ofFile sf(ofToDataPath("source.txt", true));
+        if (sf.exists()) src = ofTrim(ofBufferFromFile(sf.getAbsolutePath()).getText());
+    }
+#ifdef JARYAN_RTSP
+    if (!fake && !src.empty() && (src.rfind("rtsp://", 0) == 0 || src.rfind("http", 0) == 0)) {
+        useRtsp = true; rtspUrl = src; sourceLabel = "RTSP";
+        _putenv_s("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp");   // reliable RTSP over LAN
+        rtspRun = true;
+        rtspThread = std::thread(&CvPipeline::rtspLoop, this);
+        ofLogNotice("CvPipeline") << "RTSP source: " << rtspUrl;
+    }
+#endif
     if (fake) {
-        fakeImg.allocate(w, h, OF_IMAGE_COLOR);
-    } else {
+        fakeImg.allocate(w, h, OF_IMAGE_COLOR); sourceLabel = "FAKE";
+    }
+#ifdef JARYAN_RTSP
+    else if (useRtsp) { /* frames arrive on the RTSP thread */ }
+#endif
+    else {
         grabber.setDeviceID(0);
         grabber.setDesiredFrameRate(30);
         grabber.setup(w, h);
+        sourceLabel = "CAM";
     }
 
     // load the person detector (MobileNet-SSD, VOC 'person' class)
@@ -45,6 +67,45 @@ void CvPipeline::setup(bool fakeCam, int w, int h) {
 #endif
     ofLogNotice("CvPipeline") << "person detector " << (haveNet ? "LOADED" : "NOT loaded (fallback: blob tracking)");
 }
+
+CvPipeline::~CvPipeline() {
+#ifdef JARYAN_RTSP
+    rtspRun = false;
+    if (rtspThread.joinable()) rtspThread.join();
+#endif
+}
+
+void CvPipeline::reconnectSource() {
+#ifdef JARYAN_RTSP
+    if (useRtsp) rtspReopen = true;    // the RTSP thread will release + re-open the stream
+#endif
+}
+
+#ifdef JARYAN_RTSP
+void CvPipeline::rtspLoop() {
+    while (rtspRun.load()) {
+        if (rtspReopen.exchange(false) && vcap.isOpened()) { vcap.release(); rtspConnected = false; }
+        if (!vcap.isOpened()) {
+            vcap.open(rtspUrl, cv::CAP_FFMPEG);
+            if (!vcap.isOpened()) { rtspConnected = false; std::this_thread::sleep_for(std::chrono::milliseconds(800)); continue; }
+            rtspConnected = true;
+        }
+        cv::Mat f;
+        bool ok = false;
+        try { ok = vcap.read(f); } catch (...) { ok = false; }
+        if (ok && !f.empty()) {
+            std::lock_guard<std::mutex> lk(rtspMx);
+            f.copyTo(rtspFrame);
+            rtspNew = true;
+        } else {                                   // stream dropped -> reconnect
+            rtspConnected = false;
+            vcap.release();
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        }
+    }
+    if (vcap.isOpened()) vcap.release();
+}
+#endif
 
 #ifndef JARYAN_NO_DNN
 void CvPipeline::runDetector() {
@@ -107,6 +168,22 @@ void CvPipeline::makeFake() {
 
 void CvPipeline::update(float dt) {
     bool isNew = false;
+#ifdef JARYAN_RTSP
+    if (useRtsp) {
+        cv::Mat f;
+        { std::lock_guard<std::mutex> lk(rtspMx); if (rtspNew.load()) { rtspFrame.copyTo(f); rtspNew = false; } }
+        if (!f.empty()) {
+            cv::Mat rz, rgb;
+            if (f.cols != camW || f.rows != camH) cv::resize(f, rz, cv::Size(camW, camH)); else rz = f;
+            cv::cvtColor(rz, rgb, cv::COLOR_BGR2RGB);
+            ofPixels px; px.setFromPixels(rgb.data, camW, camH, OF_PIXELS_RGB);
+            if (mirrorCam) px.mirror(false, true);
+            color.setFromPixels(px);
+            camImg.setFromPixels(px);
+            isNew = true;
+        }
+    } else
+#endif
     if (fake) {
         makeFake();
         ofPixels src = fakeImg.getPixels();
