@@ -51,10 +51,26 @@ jobs:
           Copy-Item proj\src        $app -Recurse -Force
           Copy-Item proj\bin        $app -Recurse -Force
           Copy-Item proj\addons.make $app -Force
-          # DNN person-detection ENABLED + RTSP/IP-camera ENABLED (JARYAN_RTSP): link opencv_videoio.
-          $props = '<Project><ItemDefinitionGroup><ClCompile><PreprocessorDefinitions>JARYAN_RTSP;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile><Link><AdditionalDependencies>opencv_videoio460.lib;%(AdditionalDependencies)</AdditionalDependencies></Link></ItemDefinitionGroup></Project>'
+          # DNN person-detection ENABLED + RTSP (JARYAN_RTSP) + NDI input (JARYAN_NDI): link opencv_videoio.
+          $props = '<Project><ItemDefinitionGroup><ClCompile><PreprocessorDefinitions>JARYAN_RTSP;JARYAN_NDI;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile><Link><AdditionalDependencies>opencv_videoio460.lib;%(AdditionalDependencies)</AdditionalDependencies></Link></ItemDefinitionGroup></Project>'
           Set-Content -Path "$app\Directory.Build.props" -Value $props -Encoding ascii
           Get-ChildItem $app | Select-Object Name | Format-Table -AutoSize
+
+      - name: NDI input support (ofxNDI — take video FROM TouchDesigner as a source)
+        run: |
+          $app = "OF\apps\myApps\dataJaryanScan"
+          # ofxNDI is self-contained: bundles the NDI headers + the x64 runtime DLL, and loads the DLL
+          # dynamically (no import .lib, no SDK install needed). Just clone it and add it as an addon.
+          git clone --depth 1 https://github.com/leadedge/ofxNDI.git OF\addons\ofxNDI 2>&1 | Out-Null
+          if (Test-Path "OF\addons\ofxNDI\src\ofxNDI.h") {
+            Add-Content -Path "$app\addons.make" -Value "ofxNDI"
+            # bundle the NDI runtime DLL next to the exe so it runs even without NDI Tools installed
+            $dll = "OF\addons\ofxNDI\libs\NDI\bin\vs\Processing.NDI.Lib.x64.dll"
+            if (Test-Path $dll) { Copy-Item $dll "$app\bin\" -Force; Write-Host "bundled Processing.NDI.Lib.x64.dll" }
+            Write-Host "ofxNDI added. addons.make:"; Get-Content "$app\addons.make"
+          } else {
+            Write-Host "ofxNDI clone failed -> NDI define is set but addon missing (build may fail); check network"
+          }
 
       - name: Kinect v2 support (optional — Kinect SDK 2.0 + ofxKinectForWindows2)
         continue-on-error: true
@@ -78,7 +94,10 @@ jobs:
             if (-not $lp.WaitForExit(150000)) { Write-Host "layout timed out -> killing"; try { $lp.Kill() } catch {} }
           } catch { Write-Host "kinect sdk download/layout failed: $_" }
           Write-Host "MSIs found in layout:"
-          $msis = @(Get-ChildItem C:\klayout -Recurse -Filter *.msi -EA SilentlyContinue | Sort-Object Length)
+          # order: SDK/dev MSIs FIRST (they hold Kinect.h + Kinect20.lib), driver/runtime LAST (slow, unneeded).
+          # combined with break-early below, we grab the headers fast and never touch the driver installer.
+          $msis = @(Get-ChildItem C:\klayout -Recurse -Filter *.msi -EA SilentlyContinue |
+                    Sort-Object @{Expression={ if ($_.Name -match 'SDK') {0} elseif ($_.Name -match 'Runtime|Driver|Speech|Face|Fusion') {3} else {1} }}, @{Expression={$_.Length}; Descending=$true})
           $msis | ForEach-Object { Write-Host ("  " + $_.Name + "  (" + [int]($_.Length/1MB) + " MB)") }
           # STEP 2: admin-install each MSI (files-only extraction, no drivers). CHECK AFTER EACH and stop the
           # instant the dev files appear -> we never touch the slow driver/runtime MSIs once we have what we need.
@@ -103,7 +122,7 @@ jobs:
             git clone --depth 1 https://github.com/elliotwoods/ofxKinectForWindows2.git OF\addons\ofxKinectForWindows2 2>&1 | Out-Null
             Add-Content -Path "$app\addons.make" -Value "ofxKinectForWindows2"
             # rewrite the props to also define JARYAN_KINECT
-            $props = '<Project><ItemDefinitionGroup><ClCompile><PreprocessorDefinitions>JARYAN_RTSP;JARYAN_KINECT;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile><Link><AdditionalDependencies>opencv_videoio460.lib;%(AdditionalDependencies)</AdditionalDependencies></Link></ItemDefinitionGroup></Project>'
+            $props = '<Project><ItemDefinitionGroup><ClCompile><PreprocessorDefinitions>JARYAN_RTSP;JARYAN_NDI;JARYAN_KINECT;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile><Link><AdditionalDependencies>opencv_videoio460.lib;%(AdditionalDependencies)</AdditionalDependencies></Link></ItemDefinitionGroup></Project>'
             Set-Content -Path "$app\Directory.Build.props" -Value $props -Encoding ascii
             Write-Host "addons.make now:"; Get-Content "$app\addons.make"
           } else {

@@ -43,6 +43,13 @@ void CvPipeline::setup(bool fakeCam, int w, int h) {
         ofLogNotice("CvPipeline") << "RTSP source: " << rtspUrl;
     }
 #endif
+#ifdef JARYAN_NDI
+    if (!fake && (src == "ndi" || src == "NDI" || src.rfind("ndi:", 0) == 0)) {
+        ndiWanted = true; sourceLabel = "NDI";                 // NDI (e.g. TouchDesigner) is the primary source
+        if (src.rfind("ndi:", 0) == 0) ndiName = src.substr(4);
+        ofLogNotice("CvPipeline") << "NDI source" << (ndiName.empty() ? std::string(" (first sender)") : (": " + ndiName));
+    }
+#endif
     if (fake) {
         fakeImg.allocate(w, h, OF_IMAGE_COLOR); sourceLabel = "FAKE";
     }
@@ -52,12 +59,14 @@ void CvPipeline::setup(bool fakeCam, int w, int h) {
 #ifdef JARYAN_RTSP
     else if (useRtsp) { /* frames arrive on the RTSP thread */ }
 #endif
+    else if (ndiWanted) { /* frames arrive from the NDI receiver (created lazily on first update) */ }
     else {
         grabber.setDeviceID(0);
         grabber.setDesiredFrameRate(30);
         grabber.setup(w, h);
         sourceLabel = "CAM";
     }
+    baseLabel = sourceLabel;                  // remember the base source label (NDI toggle restores it)
 
     // load the person detector (MobileNet-SSD, VOC 'person' class)
     personMask.assign(camW * camH, 0);
@@ -88,13 +97,32 @@ CvPipeline::~CvPipeline() {
 #ifdef JARYAN_KINECT
     if (useKinect) kinect.close();
 #endif
+#ifdef JARYAN_NDI
+    if (ndiInit) ndiRecv.ReleaseReceiver();
+#endif
 }
 
 void CvPipeline::reconnectSource() {
 #ifdef JARYAN_RTSP
     if (useRtsp) rtspReopen = true;    // the RTSP thread will release + re-open the stream
 #endif
+#ifdef JARYAN_NDI
+    if (ndiWanted && ndiInit) { ndiRecv.ReleaseReceiver(); ndiInit = false; }   // re-find the NDI sender
+#endif
 }
+
+void CvPipeline::setNdiEnabled(bool on) {
+#ifdef JARYAN_NDI
+    if (on == ndiWanted) return;
+    ndiWanted = on;
+    if (on) { sourceLabel = "NDI"; }
+    else    { sourceLabel = baseLabel; ndiHasFrame = false; }
+#else
+    (void)on;                          // built without NDI -> the panel toggle is inert
+#endif
+}
+bool CvPipeline::ndiEnabled()   const { return ndiWanted; }
+bool CvPipeline::ndiReceiving() const { return ndiWanted && ndiHasFrame; }
 
 #ifdef JARYAN_RTSP
 void CvPipeline::rtspLoop() {
@@ -184,6 +212,25 @@ void CvPipeline::makeFake() {
 
 void CvPipeline::update(float dt) {
     bool isNew = false;
+    ndiHasFrame = false;
+#ifdef JARYAN_NDI
+    if (ndiWanted) {                                       // NDI (e.g. TouchDesigner) selected as the source
+        if (!ndiInit) {                                    // ReceiveImage() finds/creates the receiver internally
+            if (!ndiName.empty()) ndiRecv.SetSenderName(ndiName);   // optional: bind to a specific named sender
+            ndiInit = true;
+        }
+        if (ndiRecv.ReceiveImage(ndiPix)) {
+            ofPixels p = ndiPix;
+            if (p.getNumChannels() >= 3) p.setImageType(OF_IMAGE_COLOR);   // NDI RGBA/UYVY -> RGB
+            if ((int)p.getWidth() != camW || (int)p.getHeight() != camH) p.resize(camW, camH);
+            if (mirrorCam) p.mirror(false, true);
+            color.setFromPixels(p);
+            camImg.setFromPixels(p);
+            isNew = true; ndiHasFrame = true; sourceLabel = "NDI";
+        }
+    }
+#endif
+    if (!isNew) {                                          // no NDI frame -> fall back to the configured source
 #ifdef JARYAN_KINECT
     if (useKinect) {
         kinect.update();
@@ -234,6 +281,7 @@ void CvPipeline::update(float dt) {
             isNew = true;
         }
     }
+    }   // end fallback-source block (skipped when an NDI frame arrived)
     if (!isNew) return;
     haveFrame = true;
 

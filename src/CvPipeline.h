@@ -20,6 +20,11 @@
 #ifdef JARYAN_KINECT
 #include "ofxKinectForWindows2.h"
 #endif
+// NDI receiver — take a network video stream (e.g. from TouchDesigner) AS A SOURCE, switchable
+// live in the panel. source.txt = "ndi" (first sender) or "ndi:Name". Windows (ofxNDI dynloads the DLL).
+#ifdef JARYAN_NDI
+#include "ofxNDI.h"
+#endif
 
 // Webcam -> foreground -> contours + tracked subjects + motion energy.
 // Fake-cam mode (JARYAN_FAKECAM) synthesizes moving figures for headless testing.
@@ -66,6 +71,9 @@ public:
         return true;
     }
     void reconnectSource();                               // panel: force a re-open of the source
+    void setNdiEnabled(bool on);                          // panel/source: switch input to an NDI stream (TouchDesigner)
+    bool ndiEnabled() const;                              // NDI currently selected as the source
+    bool ndiReceiving() const;                            // an NDI sender is connected and delivering frames
     void setDetConf(float c) { detConf = ofClamp(c, 0.10f, 0.95f); }   // detection confidence threshold
     void captureBg() { bgCaptured = false; learn = 0; }
     void nudgeThreshold(int d) { threshold = ofClamp(threshold + d, 4, 120); }
@@ -102,6 +110,15 @@ private:
     std::atomic<bool> rtspReopen{false};
     void rtspLoop();
 #endif
+#ifdef JARYAN_NDI
+    ofxNDIreceiver ndiRecv;
+    bool ndiInit = false;                    // receiver object created
+    std::string ndiName;                     // optional specific sender name ("ndi:Name")
+    ofPixels ndiPix;                         // latest RGBA frame from the network sender
+#endif
+    bool ndiWanted = false;                  // NDI selected as the source (declared always so ofApp links on mac)
+    bool ndiHasFrame = false;                // NDI delivered a frame recently
+    std::string baseLabel = "CAM";           // source label to restore when NDI is toggled off
     ofImage fakeImg, camImg, silImg, subjImg, motionImg;
     ofxCvColorImage color;
     ofxCvGrayscaleImage gray, bg, diff, prevGray, motionCv;

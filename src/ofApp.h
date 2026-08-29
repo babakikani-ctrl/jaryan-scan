@@ -162,7 +162,8 @@ private:
     ofxFloatField ifCanvasW, ifCanvasH, ifWallX, ifWallY, ifWallW, ifWallH, ifFloorX, ifFloorY, ifFloorW, ifFloorH;  // typeable number fields
 
     // ---- live control panel (everything tunable on-site) ----
-    ofParameter<bool>  pMirror, pAutoCycle, pShowPerson, pShowDbgP;
+    ofParameter<bool>  pMirror, pAutoCycle, pShowPerson, pShowDbgP, pUseNDI;
+    bool ndiUiInit = false;            // sync the NDI toggle to the pipeline on the first update frame
     ofParameter<int>   pManualMode;
     ofParameter<float> pDetConf, pCutSec, pBright, pGlitch, pEnergy, pRim, pTermSpeed;
     ofxButton btnReconnect, btnFullscreen, btnRelearnBg;

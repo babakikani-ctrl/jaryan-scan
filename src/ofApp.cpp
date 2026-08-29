@@ -94,6 +94,7 @@ void ofApp::setup() {
     pRim.set("person rim/scan", 1.0f, 0.0f, 2.0f);
     pTermSpeed.set("terminal speed", 1.0f, 0.2f, 3.0f);
     pShowDbgP.set("show debug (i)", true);
+    pUseNDI.set("NDI source (n)", false);          // take video FROM an NDI sender (TouchDesigner) instead of the camera
 
     gui.setup("CONTROL  P:hide  s:save");
     gui.add(ifCanvasW.setup(canvasW)); gui.add(ifCanvasH.setup(canvasH));   // typeable exact numbers
@@ -107,6 +108,7 @@ void ofApp::setup() {
     gui.add(pBright); gui.add(pGlitch); gui.add(pEnergy);
     gui.add(pShowPerson); gui.add(pRim); gui.add(pTermSpeed);
     gui.add(pShowDbgP);
+    gui.add(pUseNDI);
     gui.add(btnReconnect.setup("reconnect camera"));
     gui.add(btnRelearnBg.setup("relearn background"));
     gui.add(btnFullscreen.setup("fullscreen"));
@@ -158,6 +160,8 @@ void ofApp::update() {
     cv.mirrorCam = pMirror;                                    // live panel controls
     cv.setDetConf(pDetConf);
     showDbg = pShowDbgP;
+    if (!ndiUiInit) { pUseNDI = cv.ndiEnabled(); ndiUiInit = true; }      // reflect the source.txt choice on the panel
+    else if (pUseNDI.get() != cv.ndiEnabled()) cv.setNdiEnabled(pUseNDI.get());   // live switch camera <-> NDI
     if (!autoShot) {
         if (pAutoCycle) { modeT += dt; if (modeT > nextCut) cut(); }
         else            { mode = ofClamp((int)pManualMode, 0, nEffects - 1); modeT = 0; }
@@ -1449,6 +1453,7 @@ void ofApp::draw() {
 
 void ofApp::keyPressed(int key) {
     if (key == 'i' || key == 'I') { pShowDbgP = !pShowDbgP; return; }
+    if (key == 'n' || key == 'N') { pUseNDI = !pUseNDI; return; }        // toggle NDI source (TouchDesigner)
     if (key == 'p' || key == 'P') { showPanel = !showPanel; return; }
     if (key == 's' || key == 'S') { gui.saveToFile("layout.xml"); return; }
     if (key == 'f') { ofToggleFullscreen(); return; }
