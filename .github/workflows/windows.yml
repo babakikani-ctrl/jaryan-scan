@@ -35,6 +35,15 @@ jobs:
           Rename-Item of_v0.12.0_vs_release OF
           Get-ChildItem OF | Select-Object Name | Format-Table -AutoSize
 
+      - name: Diagnose OpenCV video capabilities (for RTSP)
+        run: |
+          Write-Host "=== ofxOpenCv opencv libs (looking for videoio) ==="
+          Get-ChildItem -Path OF\addons\ofxOpenCv\libs\opencv\lib -Recurse -Filter *.lib -EA SilentlyContinue | ForEach-Object { $_.Name }
+          Write-Host "=== any ffmpeg / videoio anywhere in ofxOpenCv ==="
+          Get-ChildItem -Path OF\addons\ofxOpenCv -Recurse -EA SilentlyContinue | Where-Object { $_.Name -match 'videoio|ffmpeg' } | ForEach-Object { $_.FullName }
+          Write-Host "=== videoio header present? ==="
+          Get-ChildItem -Path OF\addons\ofxOpenCv -Recurse -Filter videoio.hpp -EA SilentlyContinue | ForEach-Object { $_.FullName }
+
       - name: Stage project into oF
         run: |
           $app = "OF\apps\myApps\dataJaryanScan"
