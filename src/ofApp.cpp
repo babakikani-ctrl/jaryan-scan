@@ -1,6 +1,8 @@
 #include "ofApp.h"
 #include <cstdlib>
 #include <cstdio>
+#include <cstring>
+#include <cstdint>
 
 // ================================================================= setup
 void ofApp::setup() {
@@ -1045,15 +1047,32 @@ ofApp::TermLine ofApp::termGenLine() {
 void ofApp::updateTerminal(float dt) {
     floorGlitch = std::max(0.0f, floorGlitch - dt * 2.2f);
     termGather  = std::max(0.0f, termGather  - dt * 0.9f);
-    termEvT += dt;
-    if (termEvT > termEvNext) {                               // scheduled event: glitch OR gather/collapse
-        termEvT = 0; termEvNext = ofRandom(5.0f, 11.0f);
-        if (ofRandom(1) < 0.55f) floorGlitch = ofRandom(0.7f, 1.0f);
-        else                     termGather  = 1.0f;
+    termHolo    = std::max(0.0f, termHolo    - dt / 6.5f);
+    termShape   = std::max(0.0f, termShape   - dt / 5.2f);
+    termBurst   = std::max(0.0f, termBurst   - dt / 2.2f);
+    termUplink  = std::max(0.0f, termUplink  - dt / 5.5f);
+    termAscii   = std::max(0.0f, termAscii   - dt / termAsciiDur);
+    termEvtTagT = std::max(0.0f, termEvtTagT - dt);
+    termHiT     = std::max(0.0f, termHiT - dt);
+    termHiNext -= dt;
+    if (termHiNext <= 0) {                                     // a random line suddenly gets highlighted
+        termHiNext = ofRandom(3.0f, 7.0f);
+        if (!termLines.empty()) {
+            termHiRow = (int)ofRandom((int)termLines.size());
+            termHiCol = termPal((int)ofRandom(8));
+            termHiT = ofRandom(1.0f, 1.9f);
+        }
     }
+    if (termSpeedMode != 0) { termSpeedT -= dt; if (termSpeedT <= 0) termSpeedMode = 0; }
+    float spdTarget = (termSpeedMode == 1) ? 7.0f : (termSpeedMode == 2) ? 0.15f : 1.0f;
+    termSpeedMul += (spdTarget - termSpeedMul) * std::min(1.0f, dt * 9.0f);
+    if (termSpeedMode == 1) floorGlitch = std::max(floorGlitch, 0.22f);   // overdrive shimmers
+
+    termEvT += dt * (1.0f + 1.7f * ofClamp(energy, 0, 1));   // the visitors' motion accelerates the schedule
+    if (termEvT > termEvNext) { termFireEvent(); termEvT = 0; termEvNext = ofRandom(4.5f, 9.0f); }
     if (ofRandom(1) < 0.02f + energy * 0.06f) floorGlitch = std::max(floorGlitch, ofRandom(0.3f, 0.7f));
 
-    float speed = (42.0f + energy * 90.0f) * pTermSpeed;     // typing speed rises with motion (+ panel)
+    float speed = (42.0f + energy * 90.0f) * termSpeedMul * pTermSpeed;   // motion + clock-kicks + panel slider
     termAcc += dt * speed;
     int guard = 0;
     while (termAcc >= 1.0f && guard++ < 400) {
@@ -1095,6 +1114,8 @@ void ofApp::drawTerminal() {
     float x0 = 24, y0 = termLineH + 6;
     float g = termGather;
 
+    drawTermShapes();                                        // behind the text: sudden wireframe geometry
+
     ofPushMatrix();
     if (g > 0.001f) {                                        // GATHER/COLLAPSE — text clumps inward + wobbles
         float cx = FLOOR_W * 0.5f, cy = FLOOR_H * 0.5f;
@@ -1104,21 +1125,413 @@ void ofApp::drawTerminal() {
         ofTranslate(-cx, -cy);
     }
     int row = 0;
-    for (auto& L : termLines) { drawTermLine(L, x0, y0 + row * termLineH, -1); row++; }
-    drawTermLine(termFull, x0, y0 + row * termLineH, (int)termPos);           // the line being typed
+    float wg = floorGlitch;
+    if (termHiT > 0 && termHiRow >= 0 && termHiRow < (int)termLines.size()) {   // random line HIGHLIGHT
+        float hyy = y0 + termHiRow * termLineH;
+        float ha = ofClamp(termHiT, 0, 1);
+        ofFill(); ofSetColor(termHiCol, (int)(54 * ha));
+        ofDrawRectangle(x0 - 6, hyy - termLineH * 0.78f, FLOOR_W - 44, termLineH * 0.98f);
+        ofNoFill(); ofSetLineWidth(1.0f); ofSetColor(termHiCol, (int)(135 * ha));
+        ofDrawRectangle(x0 - 6, hyy - termLineH * 0.78f, FLOOR_W - 44, termLineH * 0.98f);
+        ofSetColor(termHiCol, (int)(225 * ha)); fTiny.drawString(">>", x0 - 22, hyy);
+    }
+    for (auto& L : termLines) {                              // glitch: rows slide like a data wave
+        float xo = sinf(row * 0.55f + t * 9.0f) * 24.0f * wg;
+        drawTermLine(L, x0 + xo, y0 + row * termLineH, -1); row++;
+    }
+    float cxo = sinf(row * 0.55f + t * 9.0f) * 24.0f * wg;
+    drawTermLine(termFull, x0 + cxo, y0 + row * termLineH, (int)termPos);     // the line being typed
     if (!termFull.block && fmodf(t, 0.8f) < 0.45f) {                          // blinking cursor
-        ofSetColor(120, 255, 150);
-        ofDrawRectangle(x0 + termPos * termCharW + 1, y0 + row * termLineH - termLineH * 0.72f, termCharW * 0.85f, termLineH * 0.66f);
+        ofSetColor(termSpeedMode == 2 ? ofColor(0, 214, 224) : ofColor(120, 255, 150));
+        ofDrawRectangle(x0 + cxo + termPos * termCharW + 1, y0 + row * termLineH - termLineH * 0.72f, termCharW * 0.85f, termLineH * 0.66f);
     }
     ofPopMatrix();
+
+    drawTermUplink();                                        // the visitor's photo drops in + beams up
+    drawTermAscii();                                         // ASCII torus / dot-matrix marquee
+    drawTermBurst();                                         // expanding rings of data ticks
+    drawTermHolo();                                          // the visitor rebuilt inside the terminal
 
     ofSetColor(0, 0, 0, 55);                                 // subtle scanlines (CRT ambiance)
     for (float yy = 0; yy < FLOOR_H; yy += 3) ofDrawRectangle(0, yy, FLOOR_W, 1);
 
-    ofSetColor(70, 255, 140);                                // header + footer chrome
+    ofSetColor(70, 255, 140);                                // header chrome
     fLabel.drawString("JARYAN.SYS // TERMINAL", 24, 24);
-    ofSetColor(40, 150, 90);
-    fTiny.drawString("NODES " + ofToString((int)cv.tracks.size(), 2, '0') + "   PID " + ofToString(ofGetFrameNum() % 1000000, 6, '0'), 24, FLOOR_H - 14);
+    std::string tag; ofColor tc;
+    if (termSpeedMode != 0) {                                // clock-kick tag stays while active
+        tag = (termSpeedMode == 1) ? ">> OVERDRIVE x7.0" : ">> STASIS x0.15";
+        tc = (termSpeedMode == 1) ? ofColor(255, 205, 0) : ofColor(0, 214, 224);
+    } else if (termEvtTagT > 0 && !termEvtTag.empty()) {
+        tag = ">> " + termEvtTag; tc = ofColor(240, 60, 200);
+        tc.a = (int)(255 * ofClamp(termEvtTagT / 0.7f, 0, 1));
+    }
+    if (!tag.empty()) {
+        ofRectangle bb = fLabel.getStringBoundingBox(tag, 0, 0);
+        ofSetColor(tc); fLabel.drawString(tag, FLOOR_W - bb.width - 24, 24);
+    }
+    ofSetColor(40, 150, 90);                                 // footer: live clock-speed readout
+    fTiny.drawString("NODES " + ofToString((int)cv.tracks.size(), 2, '0')
+                     + "   CLK x" + ofToString(termSpeedMul, 2)
+                     + "   PID " + ofToString(ofGetFrameNum() % 1000000, 6, '0'), 24, FLOOR_H - 14);
+}
+
+void ofApp::termFireEvent() {
+    // the machine's sudden happenings: glitch · gather · CLOCK KICK · geo-shape · hologram · UPLINK · data burst
+    int r = (int)ofRandom(100);
+    if      (r < 10) { floorGlitch = ofRandom(0.75f, 1.0f); termEvtTag = "GLITCH.WAVE"; }
+    else if (r < 26) { termGather = 1.0f; termEvtTag = "GATHER.COLLAPSE"; }
+    else if (r < 42) {                                     // CLOCK KICK — typing suddenly races or freezes
+        if (ofRandom(1) < 0.6f) { termSpeedMode = 1; termSpeedT = ofRandom(1.4f, 2.8f); termEvtTag = "OVERDRIVE x7.0"; }
+        else                    { termSpeedMode = 2; termSpeedT = ofRandom(1.8f, 3.4f); termEvtTag = "STASIS x0.15"; }
+    }
+    else if (r < 54) {
+        termShape = 1.0f; termShapeKind = (int)ofRandom(3);
+        termEvtTag = std::string("GEO.INJECT::") + (termShapeKind == 0 ? "CUBE.PRIME" : termShapeKind == 1 ? "OCTA.CORE" : "TORUS.FIELD");
+    }
+    else if (r < 64) {
+        if (!cv.tracks.empty()) { termHolo = 1.0f; termEvtTag = "SUBJECT.HOLOGRAM"; }
+        else { termShape = 1.0f; termShapeKind = (int)ofRandom(3); termEvtTag = "GEO.INJECT"; }
+    }
+    else if (r < 76) {
+        if (!cv.tracks.empty()) { termUplink = 1.0f; termEvtTag = "SUBJECT.UPLINK"; }
+        else { termBurst = 1.0f; termEvtTag = "DATA.BURST"; }
+    }
+    else if (r < 90) {                                     // ASCII.INJECT — the terminal shows pure ASCII art
+        termAscii = 1.0f; termAsciiCol = termPal((int)ofRandom(8));
+        if (ofRandom(1) < 0.55f) { termAsciiKind = 0; termAsciiDur = 6.5f; termEvtTag = "ASCII.INJECT::TORUS"; }
+        else {
+            termAsciiKind = 1; termAsciiDur = 5.5f;
+            static const char* MSGS[] = { "DATA.JARYAN", "HUMAN?", "I SEE YOU", "SCAN COMPLETE",
+                                          "SUBJECT LOCKED", "MACHINE VISION", "NO ESCAPE", "JARYAN.SYS" };
+            termAsciiMsg = MSGS[(int)ofRandom(8)];
+            termEvtTag = "ASCII.INJECT::MARQUEE";
+        }
+    }
+    else {
+        termBurst = 1.0f; termEvtTag = "DATA.BURST";
+        if (!cv.tracks.empty()) {                          // the burst erupts from the visitor's projected spot
+            const CvTrack& tr = cv.tracks[0];
+            termBurstC = glm::vec2((1.0f - tr.c.x / cv.camW) * FLOOR_W, (tr.c.y / cv.camH) * FLOOR_H);
+        } else termBurstC = glm::vec2(ofRandom(0.2f, 0.8f) * FLOOR_W, ofRandom(0.25f, 0.7f) * FLOOR_H);
+    }
+    termEvtTagT = 2.4f;
+    floorGlitch = std::max(floorGlitch, 0.25f);            // every event lands with a visible kick
+}
+
+void ofApp::drawTermShapes() {
+    if (termShape <= 0.002f) return;
+    float env = powf(sinf(termShape * PI), 0.45f);           // fade in, stay bright, fade out
+    float cx = FLOOR_W * 0.5f, cy = FLOOR_H * 0.47f;
+    float R = 275.0f + 26.0f * sinf(t * 1.3f);
+    float ang = t * (0.7f + 1.6f * fabsf(sinf(t * 0.47f)));  // spin speed keeps changing
+    float cb = cosf(ang * 0.63f + 0.4f), sb = sinf(ang * 0.63f + 0.4f);
+    auto P3 = [&](glm::vec3 v) {
+        float ca = cosf(ang), sa = sinf(ang);
+        float x = v.x * ca + v.z * sa, z = -v.x * sa + v.z * ca;
+        float y = v.y * cb - z * sb; z = v.y * sb + z * cb;
+        float pers = 1.0f / (1.0f - z * 0.35f);
+        return glm::vec2(cx + x * pers * R, cy + y * pers * R);
+    };
+    ofPushStyle();
+    ofEnableBlendMode(OF_BLENDMODE_ADD);
+    ofNoFill(); ofSetLineWidth(1.2f);
+    ofColor c0(40, 230, 130), c1(0, 190, 220);
+    if (termShapeKind == 0) {                                // CUBE.PRIME — 12 edges
+        glm::vec3 V[8];
+        int E[12][2] = {{0,1},{1,3},{3,2},{2,0},{4,5},{5,7},{7,6},{6,4},{0,4},{1,5},{2,6},{3,7}};
+        for (int i = 0; i < 8; i++)
+            V[i] = glm::vec3((i & 1 ? 0.62f : -0.62f), (i & 2 ? 0.62f : -0.62f), (i & 4 ? 0.62f : -0.62f));
+        for (int i = 0; i < 12; i++) {
+            glm::vec2 a = P3(V[E[i][0]]), b = P3(V[E[i][1]]);
+            ofSetColor(i % 2 ? c0 : c1, (int)(200 * env));
+            ofDrawLine(a.x, a.y, b.x, b.y);
+        }
+    } else if (termShapeKind == 1) {                         // OCTA.CORE
+        glm::vec3 V[6] = { {1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1} };
+        for (int i = 0; i < 6; i++) for (int j = i + 1; j < 6; j++) {
+            if (j == (i ^ 1)) continue;                      // skip opposite pairs
+            glm::vec2 a = P3(V[i] * 0.85f), b = P3(V[j] * 0.85f);
+            ofSetColor((i + j) % 2 ? c0 : c1, (int)(190 * env));
+            ofDrawLine(a.x, a.y, b.x, b.y);
+        }
+    } else {                                                 // TORUS.FIELD — three rotating rings + spokes
+        for (int k = 0; k < 3; k++) {
+            float rr = 0.85f - 0.22f * k;
+            ofBeginShape();
+            for (int i = 0; i <= 48; i++) {
+                float a2 = i / 48.0f * TWO_PI;
+                glm::vec3 v = (k == 2) ? glm::vec3(cosf(a2) * rr, 0, sinf(a2) * rr)
+                                       : glm::vec3(cosf(a2) * rr, sinf(a2) * rr * (k == 1 ? 0.25f : 1.0f), 0);
+                glm::vec2 p = P3(v);
+                ofVertex(p.x, p.y);
+            }
+            ofEndShape(false);
+        }
+        for (int i = 0; i < 24; i++) {
+            float a2 = i / 24.0f * TWO_PI + t * 0.8f;
+            glm::vec2 p1 = P3(glm::vec3(cosf(a2) * 0.85f, sinf(a2) * 0.85f, 0));
+            glm::vec2 p2 = P3(glm::vec3(cosf(a2) * 0.95f, sinf(a2) * 0.95f, 0));
+            ofSetColor(c1, (int)(120 * env));
+            ofDrawLine(p1.x, p1.y, p2.x, p2.y);
+        }
+    }
+    ofSetColor(70, 255, 140, (int)(200 * env));
+    fTiny.drawString(std::string("GEO.INJECT :: ") +
+                     (termShapeKind == 0 ? "CUBE.PRIME" : termShapeKind == 1 ? "OCTA.CORE" : "TORUS.FIELD"),
+                     cx - 70, cy + R + 26);
+    ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+    ofPopStyle();
+}
+
+// ---- the visitor's silhouette rebuilt as a flickering character-hologram inside the terminal ----
+void ofApp::drawTermHolo() {
+    if (termHolo <= 0.004f) return;
+    ofPixels& sil = cv.silhouettePixels();
+    int cw = cv.camW, chh = cv.camH;
+    bool ok = (sil.getData() != nullptr && (int)sil.getWidth() == cw && (int)sil.getHeight() == chh);
+    if (!ok) return;
+    float hw = 540.0f, hh = 320.0f, hx = (FLOOR_W - hw) * 0.5f, hy = FLOOR_H * 0.13f;
+    // crop to the subjects' union bbox so the hologram is BIG — it is a hologram OF them
+    float ux0 = 0, uy0 = 0, ux1 = 1, uy1 = 1;
+    if (!cv.tracks.empty()) {
+        ux0 = uy0 = 1; ux1 = uy1 = 0; bool any = false;
+        for (auto& tr : cv.tracks) {
+            float x0 = ofClamp(tr.bbox.x / cw, 0, 1),            y0 = ofClamp(tr.bbox.y / chh, 0, 1);
+            float x1 = ofClamp((tr.bbox.x + tr.bbox.width) / cw, 0, 1), y1 = ofClamp((tr.bbox.y + tr.bbox.height) / chh, 0, 1);
+            if (x1 - x0 < 0.03f || y1 - y0 < 0.03f) continue;
+            ux0 = std::min(ux0, x0); uy0 = std::min(uy0, y0);
+            ux1 = std::max(ux1, x1); uy1 = std::max(uy1, y1); any = true;
+        }
+        if (!any || ux1 - ux0 < 0.06f || uy1 - uy0 < 0.06f) { ux0 = 0; uy0 = 0; ux1 = 1; uy1 = 1; }
+        float mx = (ux1 - ux0) * 0.10f, my = (uy1 - uy0) * 0.10f;   // breathing margin
+        ux0 = std::max(0.0f, ux0 - mx); uy0 = std::max(0.0f, uy0 - my);
+        ux1 = std::min(1.0f, ux1 + mx); uy1 = std::min(1.0f, uy1 + my);
+    }
+    float env = ofClamp(termHolo * 3.5f, 0, 1);                                  // holds bright, fades at the end
+    float fl = 0.82f + 0.18f * sinf(t * 23.0f) * sinf(t * 7.3f);                 // hologram flicker
+    float reveal = ofClamp((1.0f - termHolo) / 0.12f, 0, 1) * (hh + 60.0f);      // sweeps in top->bottom
+    ofPushStyle();
+    ofEnableBlendMode(OF_BLENDMODE_ADD);
+    int GX = 74, GY = 44;
+    for (int gy = 0; gy < GY; gy++) for (int gx = 0; gx < GX; gx++) {
+        float u = ux0 + (gx + 0.5f) / GX * (ux1 - ux0);
+        float v = uy0 + (gy + 0.5f) / GY * (uy1 - uy0);
+        float s = sil[(int)(v * chh) * cw + (int)(u * cw)] / 255.0f;
+        if (s < 0.22f) continue;
+        float x = hx + u * hw, y = hy + v * hh;
+        if (y - hy > reveal) continue;
+        if (ofRandom(1) < 0.05f) continue;                                       // dropout
+        ofColor c = ofColor(80, 255, 150).getLerped(ofColor(0, 215, 255), s);
+        ofSetColor(c, (int)(185 * sqrtf(s) * fl * env));
+        ofDrawRectangle(x, y, hw / GX - 1.5f, hh / GY * 1.55f);
+    }
+    float syl = hy + fmodf(t * 150.0f, hh);                                      // scan line through the body
+    ofSetColor(160, 255, 210, (int)(70 * env));
+    ofDrawRectangle(hx, syl, hw, 3);
+    ofNoFill(); ofSetLineWidth(1.2f); ofSetColor(70, 255, 140, (int)(190 * env));
+    float L = 16;
+    ofDrawLine(hx, hy, hx + L, hy);           ofDrawLine(hx, hy, hx, hy + L);
+    ofDrawLine(hx + hw, hy, hx + hw - L, hy); ofDrawLine(hx + hw, hy, hx + hw, hy + L);
+    ofDrawLine(hx, hy + hh, hx + L, hy + hh); ofDrawLine(hx, hy + hh, hx, hy + hh - L);
+    ofDrawLine(hx + hw, hy + hh, hx + hw - L, hy + hh); ofDrawLine(hx + hw, hy + hh, hx + hw, hy + hh - L);
+    std::string lab = "SUBJECT.HOLOGRAM";
+    if (!cv.tracks.empty()) lab += "  ID:" + ofToString(cv.tracks[0].id % 1000, 3, '0');
+    ofSetColor(70, 255, 140, (int)(220 * env));
+    fTiny.drawString(lab, hx, hy + hh + 18);
+    ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+    ofPopStyle();
+}
+
+// ---- SUBJECT.UPLINK: the person's photo drops into the terminal, then beams a live link up ----
+void ofApp::drawTermUplink() {
+    if (termUplink <= 0.003f || cv.tracks.empty()) return;
+    const CvTrack& tr = cv.tracks[0];
+    float frac = ofClamp((1.0f - termUplink) / 0.16f, 0, 1);     // the fall takes the first ~0.9 s
+    float e = 1.0f - powf(1.0f - frac, 3.0f);                    // ease-out landing
+    float cw2 = 300.0f, ch2 = 380.0f, cx = FLOOR_W * 0.5f;
+    float cy = ofLerp(-ch2 * 0.7f, FLOOR_H * 0.56f, e);
+    glm::vec4 uv = camUv(tr);
+    float v1 = uv.y + (uv.w - uv.y) * 0.62f;                     // head + torso crop — unmistakably THEM
+    ofSetColor(6, 8, 10, 235);
+    ofDrawRectangle(cx - cw2 * 0.5f - 8, cy - 26, cw2 + 16, ch2 + 40);
+    drawMachine(ofRectangle(cx - cw2 * 0.5f, cy, cw2, ch2),
+                glm::vec2(uv.x, uv.y), glm::vec2(uv.z, v1),
+                glm::vec2(cw2 / 3.0f, ch2 / 3.0f), ofColor(255), 1.0f, 0.22f);
+    ofNoFill(); ofSetLineWidth(1.3f); ofSetColor(70, 255, 140);
+    ofDrawRectangle(cx - cw2 * 0.5f, cy, cw2, ch2);
+    float L = 14, x0 = cx - cw2 * 0.5f, x1 = cx + cw2 * 0.5f;    // corner ticks
+    ofDrawLine(x0, cy, x0 + L, cy); ofDrawLine(x0, cy, x0, cy + L);
+    ofDrawLine(x1, cy, x1 - L, cy); ofDrawLine(x1, cy, x1, cy + L);
+    ofSetColor(70, 255, 140);
+    fTiny.drawString("SUBJECT.CAPTURED  ID:" + ofToString(tr.id % 1000, 3, '0') + "  UPLINK."
+                     + std::string(frac >= 1.0f ? "ACTIVE" : "OPEN"),
+                     x0, cy + ch2 + 20);
+    if (frac > 0.9f && frac < 1.06f) {                           // landing flash
+        float fa = 1.0f - fabsf(frac - 0.98f) * 9.0f;
+        if (fa > 0) { ofEnableBlendMode(OF_BLENDMODE_ADD); ofSetColor(160, 255, 200, (int)(150 * fa));
+                      ofDrawRectangle(x0 - 4, cy - 4, cw2 + 8, ch2 + 8); ofEnableBlendMode(OF_BLENDMODE_ALPHA); }
+    }
+    if (frac >= 1.0f) {                                          // slim beam from the photo up to the wall edge
+        glm::vec2 base(cx, cy), top(cx, 0);
+        ofEnableBlendMode(OF_BLENDMODE_ADD);
+        ofSetLineWidth(1.2f);  ofSetColor(150, 255, 195, 120); ofDrawLine(base.x, base.y, top.x, top.y);
+        ofFill();
+        for (int i = 0; i < 3; i++) {                            // small data packets rising
+            float p = fmodf(t * 0.9f + i * 0.33f, 1.0f);
+            float px = ofLerp(base.x, top.x, p), py = ofLerp(base.y, top.y, p);
+            ofSetColor(195, 255, 220, 150); ofDrawRectangle(px - 2.0f, py - 5, 4, 10);
+        }
+        ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+    }
+}
+
+// ---- ASCII.INJECT: a live spinning ASCII torus, or a dot-matrix marquee message ----
+static const uint8_t* dotGlyph(char c) {                     // 5x5 dot-matrix font (5-bit rows, MSB left)
+    static const uint8_t G[][5] = {
+        {0x0E,0x11,0x1F,0x11,0x11},                          // A
+        {0x1E,0x11,0x1E,0x11,0x1E},                          // B
+        {0x0F,0x10,0x10,0x10,0x0F},                          // C
+        {0x1E,0x11,0x11,0x11,0x1E},                          // D
+        {0x1F,0x10,0x1E,0x10,0x1F},                          // E
+        {0x11,0x11,0x1F,0x11,0x11},                          // H
+        {0x1F,0x04,0x04,0x04,0x1F},                          // I
+        {0x07,0x02,0x02,0x12,0x0C},                          // J
+        {0x11,0x12,0x1C,0x12,0x11},                          // K
+        {0x10,0x10,0x10,0x10,0x1F},                          // L
+        {0x11,0x1B,0x15,0x11,0x11},                          // M
+        {0x11,0x19,0x15,0x13,0x11},                          // N
+        {0x0E,0x11,0x11,0x11,0x0E},                          // O
+        {0x1E,0x11,0x1E,0x10,0x10},                          // P
+        {0x1E,0x11,0x1E,0x12,0x11},                          // R
+        {0x0F,0x10,0x0E,0x01,0x1E},                          // S
+        {0x1F,0x04,0x04,0x04,0x04},                          // T
+        {0x11,0x11,0x11,0x11,0x0E},                          // U
+        {0x11,0x11,0x11,0x0A,0x04},                          // V
+        {0x11,0x0A,0x04,0x04,0x04},                          // Y
+        {0x0E,0x11,0x02,0x00,0x04},                          // ?
+        {0x00,0x00,0x00,0x00,0x04},                          // .
+        {0x04,0x04,0x04,0x00,0x04},                          // !
+        {0x00,0x00,0x00,0x00,0x00} };                        // space
+    c = (char)ofToUpper(std::string(1, c))[0];
+    switch (c) {
+        case 'A': return G[0];  case 'B': return G[1];  case 'C': return G[2];  case 'D': return G[3];
+        case 'E': return G[4];  case 'H': return G[5];  case 'I': return G[6];  case 'J': return G[7];
+        case 'K': return G[8];  case 'L': return G[9];  case 'M': return G[10]; case 'N': return G[11];
+        case 'O': return G[12]; case 'P': return G[13]; case 'R': return G[14]; case 'S': return G[15];
+        case 'T': return G[16]; case 'U': return G[17]; case 'V': return G[18]; case 'Y': return G[19];
+        case '?': return G[20]; case '.': return G[21]; case '!': return G[22]; default: return G[23];
+    }
+}
+
+void ofApp::drawTermAscii() {
+    if (termAscii <= 0.004f) return;
+    float elapsed = 1.0f - termAscii;                        // 0 -> 1 over the event
+    float env = ofClamp(std::min(elapsed * 9.0f, termAscii * 4.0f), 0, 1);
+    ofPushStyle();
+    if (termAsciiKind == 0) {
+        // ---- the legendary spinning ASCII torus, rendered live in characters ----
+        const int COLS = 70, ROWS = 30;
+        static char chars[70 * 30]; static float zbuf[70 * 30];
+        memset(chars, 0, sizeof(chars)); memset(zbuf, 0, sizeof(zbuf));
+        const float R1 = 1.0f, R2 = 2.0f, K2 = 5.0f, K1 = 44.0f;
+        const float A = t * 1.15f, B = t * 0.62f;
+        const float cA = cosf(A), sA = sinf(A), cB = cosf(B), sB = sinf(B);
+        static const char* RAMP = ".,-~:;=!*#$@";
+        for (float th = 0; th < TWO_PI; th += 0.07f) {
+            float ct = cosf(th), st = sinf(th);
+            float circlex = R2 + R1 * ct, circley = R1 * st;
+            for (float ph = 0; ph < TWO_PI; ph += 0.02f) {
+                float cp = cosf(ph), sp = sinf(ph);
+                float x = circlex * (cB * cp + sA * st * sB) - circley * cA * sB;
+                float y = circlex * (sB * cp - sA * st * cB) + circley * cA * cp;
+                float z = K2 + cA * circlex * st + circley * sA;
+                float ooz = 1.0f / z;
+                int xp = (int)(COLS / 2.0f + K1 * ooz * x);
+                int yp = (int)(ROWS / 2.0f - K1 * ooz * y * 0.5f);
+                if (xp < 0 || xp >= COLS || yp < 0 || yp >= ROWS) continue;
+                float L = cp * ct * sB - cA * ct * sp - sA * st + cB * (cA * st - ct * sA * sp);
+                if (L > 0 && ooz > zbuf[yp * COLS + xp]) {
+                    zbuf[yp * COLS + xp] = ooz;
+                    chars[yp * COLS + xp] = RAMP[std::min(11, (int)(L * 8.0f))];
+                }
+            }
+        }
+        float cs = 5.4f, lh = 11.0f;
+        float pw = COLS * cs + 40.0f, phh = ROWS * lh + 44.0f;
+        float px = (FLOOR_W - pw) * 0.5f, py = (FLOOR_H - phh) * 0.42f;
+        ofSetColor(4, 6, 8, (int)(225 * env)); ofFill();
+        ofDrawRectangle(px, py, pw, phh);
+        ofNoFill(); ofSetLineWidth(1.0f); ofSetColor(termAsciiCol, (int)(150 * env));
+        ofDrawRectangle(px, py, pw, phh);
+        ofFill();
+        for (int rrow = 0; rrow < ROWS; rrow++) {            // draw colour-runs per row (cheap)
+            int cc = 0;
+            while (cc < COLS) {
+                if (chars[rrow * COLS + cc] == 0) { cc++; continue; }
+                char lvl = chars[rrow * COLS + cc];
+                int start = cc;
+                while (cc < COLS && chars[rrow * COLS + cc] == lvl) cc++;
+                std::string run(chars + rrow * COLS + start, chars + rrow * COLS + cc);
+                float b = 0.30f + 0.70f * (lvl / 11.0f);
+                ofColor col = ofColor(40, 255, 140).getLerped(ofColor(220, 255, 235), b);
+                ofSetColor(col, (int)(235 * env));
+                fBin.drawString(run, px + 20 + start * cs, py + 26 + rrow * lh);
+            }
+        }
+        ofSetColor(termAsciiCol, (int)(190 * env));
+        fTiny.drawString("ASCII.INJECT::TORUS.FIELD  SPIN " + ofToString(fmodf(t * 18.3f, 360.0f), 3, '0') + "DEG", px + 20, py + phh - 8);
+    } else {
+        // ---- dot-matrix marquee: the machine posts a message in pure pixels ----
+        int cell = 9, gap = 6;
+        int msgCols = (int)termAsciiMsg.size() * gap - 1;
+        float pw = msgCols * cell + 56.0f, phh = 5 * cell + 62.0f;
+        float px = (FLOOR_W - pw) * 0.5f, py = (FLOOR_H - phh) * 0.40f;
+        ofSetColor(4, 6, 8, (int)(228 * env)); ofFill();
+        ofDrawRectangle(px, py, pw, phh);
+        ofNoFill(); ofSetLineWidth(1.0f); ofSetColor(termAsciiCol, (int)(160 * env));
+        ofDrawRectangle(px, py, pw, phh);
+        ofFill();
+        int revRows = (int)(ofClamp(elapsed * 5.0f, 0, 1) * 5.0f + 0.999f);   // rows type in fast
+        for (int chI = 0; chI < (int)termAsciiMsg.size(); chI++) {
+            const uint8_t* g = dotGlyph(termAsciiMsg[chI]);
+            for (int rr = 0; rr < std::min(5, revRows); rr++) for (int cq = 0; cq < 5; cq++) {
+                if (!((g[rr] >> (4 - cq)) & 1)) continue;
+                if (ofRandom(1) < 0.025f) continue;                           // dead pixels
+                float wav = 0.7f + 0.3f * sinf((chI * 5 + cq) * 0.5f - t * 7.0f);
+                ofSetColor(termAsciiCol, (int)(225 * wav * env));
+                ofDrawRectangle(px + 28 + (chI * gap + cq) * cell, py + 24 + rr * cell, cell - 1.6f, cell - 1.6f);
+            }
+        }
+        ofSetColor(termAsciiCol, (int)(190 * env));
+        fTiny.drawString("ASCII.INJECT::MARQUEE // " + termAsciiMsg, px + 28, py + phh - 10);
+    }
+    ofPopStyle();
+}
+
+// ---- expanding rings of data ticks (from the visitor's projected position or random) ----
+void ofApp::drawTermBurst() {
+    if (termBurst <= 0.004f) return;
+    ofPushStyle();
+    ofEnableBlendMode(OF_BLENDMODE_ADD);
+    ofSetLineWidth(1.3f);
+    float cx = termBurstC.x, cy = termBurstC.y;
+    for (int k = 0; k < 3; k++) {
+        float rad = (1.0f - termBurst) * (170.0f + k * 130.0f);
+        if (rad < 6) continue;
+        float al = termBurst * (1.0f - k * 0.24f);
+        int nt = 40 + k * 8;
+        for (int i = 0; i < nt; i++) {
+            float a = i * TWO_PI / nt + k * 0.3f + t * (0.4f + 0.2f * k);
+            float len = 5.0f + 5.0f * ((i + k) % 4 == 0 ? 1.0f : 0.3f);
+            float x0 = cx + cosf(a) * rad,         y0 = cy + sinf(a) * rad * 0.8f;
+            float x1 = cx + cosf(a) * (rad + len), y1 = cy + sinf(a) * (rad + len) * 0.8f;
+            ofSetColor(termPal((i + k * 3) % 8), (int)(235 * al));
+            ofDrawLine(x0, y0, x1, y1);
+        }
+    }
+    ofSetColor(255, (int)(160 * termBurst)); ofDrawCircle(cx, cy, 3);
+    ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+    ofPopStyle();
 }
 
 void ofApp::drawFloorTex(float x, float y, float w, float h) {

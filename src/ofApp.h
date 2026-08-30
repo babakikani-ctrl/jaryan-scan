@@ -141,9 +141,34 @@ private:
     float    floorGlitch = 0;            // floor glitch-burst intensity (decays)
     float    termEvT = 0, termEvNext = 7, termGather = 0;   // gather/collapse event
     int      termSeq = 0;                // line counter (drives content)
+    // HIGH-TECH floor events: sudden geo-shapes, subject hologram, data bursts, clock kicks, ASCII injects
+    int      termSpeedMode = 0;          // 0 normal · 1 OVERDRIVE (typing x7) · 2 STASIS (x0.15)
+    float    termSpeedT = 0, termSpeedMul = 1;
+    float    termShape = 0;              // wireframe geo-shape event, 1 -> 0 (fade in/out)
+    int      termShapeKind = 0;
+    float    termHolo = 0;               // visitor silhouette rendered as a character hologram, 1 -> 0
+    float    termBurst = 0;              // expanding data-burst rings, 1 -> 0
+    float    termUplink = 0;             // SUBJECT.UPLINK — photo drops in, then beams up
+    float    termAscii = 0;              // ASCII.INJECT — spinning ASCII torus or dot-matrix marquee
+    int      termAsciiKind = 0;          // 0 = torus · 1 = marquee banner
+    float    termAsciiDur = 6.0f;
+    ofColor  termAsciiCol;
+    std::string termAsciiMsg;
+    glm::vec2 termBurstC{FLOOR_W * 0.5f, FLOOR_H * 0.45f};
+    int      termHiRow = -1;             // random terminal line highlight
+    float    termHiT = 0, termHiNext = 4;
+    ofColor  termHiCol;
+    std::string termEvtTag;              // status tag for the current event
+    float    termEvtTagT = 0;
     void  initTerminal();
     void  updateTerminal(float dt);
+    void  termFireEvent();               // scheduled high-tech happenings (motion accelerates them)
     void  drawTerminal();
+    void  drawTermShapes();              // sudden wireframe geometry behind the text
+    void  drawTermHolo();                // the visitor rebuilt from glyphs inside the terminal
+    void  drawTermUplink();              // SUBJECT.UPLINK — photo drops in + beams up
+    void  drawTermAscii();               // ASCII torus / dot-matrix marquee
+    void  drawTermBurst();               // expanding rings of data ticks
     void  drawTermLine(const TermLine& L, float x, float y, int upto);
     TermLine termGenLine();
     void  drawFloorTex(float x, float y, float w, float h);   // glitch composite for the floor
